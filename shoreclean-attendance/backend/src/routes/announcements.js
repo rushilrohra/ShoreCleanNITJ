@@ -20,7 +20,7 @@ router.post('/generate-poster', verifyUserToken, async (req, res) => {
     }
 
     const eventResult = await query(
-      'SELECT id, title, location_name, event_date FROM events WHERE id = $1',
+      'SELECT id, title, location AS location_name, event_date FROM events WHERE id = $1',
       [event_id]
     );
 
@@ -58,7 +58,7 @@ router.post('/send-email', verifyUserToken, async (req, res) => {
     }
 
     const eventResult = await query(
-      'SELECT title, location_name, event_date, poster_url FROM events WHERE id = $1',
+      'SELECT title, location AS location_name, event_date, poster_url FROM events WHERE id = $1',
       [event_id]
     );
 
@@ -71,23 +71,45 @@ router.post('/send-email', verifyUserToken, async (req, res) => {
       return res.status(400).json({ message: 'Please generate a poster before sending an announcement' });
     }
 
-    // Get ALL registered volunteers and organizers on the platform
+    // Get recipients registered for this specific event.
     const usersResult = await query(
-      "SELECT email FROM users WHERE (role = 'volunteer' OR role = 'organizer') AND email IS NOT NULL"
+      `
+        SELECT DISTINCT u.email
+        FROM event_registrations er
+        JOIN users u ON u.id = er.user_id
+        WHERE er.event_id = $1
+          AND u.email IS NOT NULL
+          AND TRIM(u.email) <> ''
+          AND er.status IN ('PENDING', 'ACTIVE', 'DONE')
+      `,
+      [event_id]
     );
 
-    const emails = usersResult.rows.map(r => r.email);
+    const emails = usersResult.rows.map((r) => r.email);
 
     if (emails.length === 0) {
-      return res.status(400).json({ message: 'No registered volunteers found to email.' });
+      return res.status(400).json({ message: 'No registered users found for this event.' });
     }
 
-    // Send Broadcast
-    await sendAnnouncementEmail(emails, event);
+    const delivery = await sendAnnouncementEmail(emails, event);
+    if (!delivery.ok) {
+      return res.status(502).json({
+        message: 'Announcement email delivery failed. Verify EMAIL_USER/EMAIL_PASS and SMTP access.',
+        details: delivery.error,
+        sent_count: delivery.sentCount,
+        failed_count: delivery.failedCount,
+      });
+    }
+
+    const partial = delivery.failedCount > 0;
 
     return res.status(200).json({
       success: true,
-      message: `Event invitation successfully broadcasted to all ${emails.length} volunteers and organizers on the platform.`
+      message: partial
+        ? `Announcement sent to ${delivery.sentCount} users (${delivery.failedCount} failed).`
+        : `Announcement sent to all ${delivery.sentCount} registered users.`,
+      sent_count: delivery.sentCount,
+      failed_count: delivery.failedCount,
     });
   } catch (error) {
     console.error("Announcement Email Error:", error);

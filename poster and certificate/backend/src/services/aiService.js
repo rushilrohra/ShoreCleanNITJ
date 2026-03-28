@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { getExternalApiConfig } = require('../utils/axiosConfig');
 
 // Helper for rate limits
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -7,7 +8,12 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 async function axiosWithRetry(config, maxRetries = 2) {
     for (let i = 0; i < maxRetries; i++) {
         try {
-            return await axios(config);
+            // Merge with SSL-safe config
+            const fullConfig = {
+                ...getExternalApiConfig(),
+                ...config,
+            };
+            return await axios(fullConfig);
         } catch (error) {
             if (error.response && error.response.status === 429 && i < maxRetries - 1) {
                 console.warn(`⚠️ Rate limited (429). Retrying in ${Math.pow(2, i + 1)}s...`);

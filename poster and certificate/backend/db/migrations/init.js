@@ -16,7 +16,7 @@ console.log(`✓ DB_NAME: ${process.env.DB_NAME || 'NOT SET'}`);
 const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'shoreclean_db',
+    database: process.env.DB_NAME || 'shoreclean_unified',
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || 'postgres'
 });
@@ -30,8 +30,8 @@ async function runMigrations() {
         await pool.query('SELECT NOW()');
         console.log('✅ Connected to PostgreSQL');
 
-        // Read SQL migration file
-        const sqlPath = path.join(__dirname, 'init.sql');
+        // Read single unified SQL file from workspace root
+        const sqlPath = path.resolve(__dirname, '../../../../unified_database.sql');
         const sql = fs.readFileSync(sqlPath, 'utf-8');
 
         // Execute migrations
@@ -57,7 +57,7 @@ async function runMigrations() {
         console.error('\n🔍 Troubleshooting tips:');
         console.error('   1. Check if PostgreSQL is running');
         console.error('   2. Verify database credentials in .env');
-        console.error('   3. Ensure database exists: createdb shoreclean_db');
+        console.error('   3. Ensure database exists: createdb shoreclean_unified');
         console.error('   4. Check .env file has correct DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD');
 
         await pool.end();

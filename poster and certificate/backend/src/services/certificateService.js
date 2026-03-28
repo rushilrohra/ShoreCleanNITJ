@@ -206,7 +206,18 @@ async function generateAndEmailCertificate({
 
     // 3. Email the certificate
     if (volunteerEmail) {
-        await sendCertificateEmail(volunteerId, volunteerEmail, url, tier, hours, wasteKg);
+        const emailResult = await sendCertificateEmail(
+            volunteerEmail,
+            volunteerName,
+            url,
+            tier,
+            hours,
+            wasteKg
+        );
+
+        if (!emailResult?.success) {
+            throw new Error(emailResult?.error || 'Certificate email failed');
+        }
     }
 
     return { url, tier };

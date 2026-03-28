@@ -65,8 +65,84 @@ export const scanAPI = {
 };
 
 export const announcementsAPI = {
-  generatePoster: (event_id) => api.post('/api/announcements/generate-poster', { event_id }),
-  sendEmail: (event_id) => api.post('/api/announcements/send-email', { event_id }),
+  generatePoster: async (event_id) => {
+    try {
+      return await api.post('/api/announcements/generate-poster', { event_id });
+    } catch (error) {
+      // Local resilience: backend may auto-shift ports when one is occupied.
+      const primaryBase = String(api.defaults.baseURL || '').replace(/\/$/, '');
+      const fallbackOrigins = [
+        'http://localhost:5000',
+        'http://localhost:5001',
+        'http://localhost:5002',
+        'http://localhost:5003',
+        'http://localhost:5004',
+      ].filter((origin, index, arr) => origin !== primaryBase && arr.indexOf(origin) === index);
+      const fallbackPaths = ['/api/announcements/generate-poster', '/api/admin/generate-poster'];
+      const token = typeof window !== 'undefined' ? localStorage.getItem('shoreclean_token') : null;
+      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
+      if (error?.response?.status === 404 || error?.code === 'ERR_NETWORK' || error?.response?.status === 500) {
+        for (const origin of fallbackOrigins) {
+          const client = axios.create({ baseURL: origin });
+          for (const path of fallbackPaths) {
+            try {
+              return await client.post(path, { event_id }, { headers: authHeaders, timeout: 10000 });
+            } catch (fallbackError) {
+              const status = fallbackError?.response?.status;
+              if (status && status !== 404 && status !== 500) {
+                throw fallbackError;
+              }
+            }
+          }
+        }
+
+        throw new Error(
+          'Poster API route not found on available local backends. Ensure ShoreClean backend is running and exposes /api/announcements/generate-poster.'
+        );
+      }
+      throw error;
+    }
+  },
+  sendEmail: async (event_id) => {
+    try {
+      return await api.post('/api/announcements/send-email', { event_id });
+    } catch (error) {
+      const primaryBase = String(api.defaults.baseURL || '').replace(/\/$/, '');
+      const fallbackOrigins = [
+        'http://localhost:5000',
+        'http://localhost:5001',
+        'http://localhost:5002',
+        'http://localhost:5003',
+        'http://localhost:5004',
+      ].filter((origin, index, arr) => origin !== primaryBase && arr.indexOf(origin) === index);
+      const fallbackPaths = ['/api/announcements/send-email', '/api/admin/send-announcement'];
+      const token = typeof window !== 'undefined' ? localStorage.getItem('shoreclean_token') : null;
+      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
+      if (error?.response?.status === 404 || error?.code === 'ERR_NETWORK' || error?.response?.status === 500) {
+        for (const origin of fallbackOrigins) {
+          const client = axios.create({ baseURL: origin });
+          for (const path of fallbackPaths) {
+            try {
+              return await client.post(path, { event_id }, { headers: authHeaders, timeout: 10000 });
+            } catch (fallbackError) {
+              const status = fallbackError?.response?.status;
+              if (status && status !== 404 && status !== 500) {
+                throw fallbackError;
+              }
+            }
+          }
+        }
+
+        throw new Error(
+          'Announcement email API route not found on available local backends. Ensure ShoreClean backend is running and exposes /api/announcements/send-email.'
+        );
+      }
+
+      throw error;
+    }
+  },
 };
 
 export default api;

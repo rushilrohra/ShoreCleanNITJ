@@ -1,11 +1,11 @@
 const { Pool } = require('pg');
 
 const pool = new Pool({
-  host: process.env.DB_HOST,
+  host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT) || 5432,
-  user: process.env.DB_USER,
+  user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
+  database: process.env.DB_NAME || 'shoreclean_unified',
 });
 
 async function testConnection() {
@@ -29,11 +29,20 @@ async function ensureIndexes() {
 
 async function ensureEventColumns() {
   try {
-    await pool.query("ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled', 'completed'))");
+    await pool.query("ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('scheduled', 'ongoing', 'active', 'completed', 'cancelled'))");
+    await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS location_name TEXT');
+    await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS location TEXT');
+    await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS beach_name TEXT');
+    await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS start_time TIME');
+    await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS end_time TIME');
+    await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS max_volunteers INTEGER DEFAULT 100');
     await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION');
     await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION');
     await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS poster_url TEXT');
     await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS social_caption TEXT');
+    await pool.query('UPDATE events SET location_name = COALESCE(location_name, location) WHERE location_name IS NULL');
+    await pool.query('UPDATE events SET location = COALESCE(location, location_name) WHERE location IS NULL');
+    await pool.query('UPDATE events SET beach_name = COALESCE(beach_name, location_name, location) WHERE beach_name IS NULL');
   } catch (error) {
     console.error('Failed to ensure event columns:', error.message);
   }

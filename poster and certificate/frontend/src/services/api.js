@@ -1,4 +1,4 @@
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:5000/api';
+const API_BASE = process.env.REACT_APP_API_BASE || '/api';
 
 const getAuthHeaders = () => ({
     'Content-Type': 'application/json',
@@ -72,6 +72,23 @@ export const qrApi = {
             headers: getAuthHeaders(),
             body: JSON.stringify({ eventId, latitude, longitude }),
         });
+        return res.json();
+    },
+};
+
+// ─── Organizer Scanner (registration-based flow) ────────────────────────────
+export const scanApi = {
+    scan: async (qr_token, scan_type, event_id) => {
+        const res = await fetch(`${API_BASE}/scan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ qr_token, scan_type, event_id }),
+        });
+        return res.json();
+    },
+
+    eventStatus: async (eventId) => {
+        const res = await fetch(`${API_BASE}/scan/event/${eventId}/status`);
         return res.json();
     },
 };
@@ -161,6 +178,29 @@ export const adminApi = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ eventId }),
         });
+        return res.json();
+    },
+};
+
+// ─── Poster API (used by PosterGenerator component) ─────────────────────────
+export const posterApi = {
+    generate: async (eventId, template = 'master', heroImage = null) => {
+        // Primary route used by this backend.
+        let res = await fetch(`${API_BASE}/admin/generate-poster`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ eventId, template, heroImage }),
+        });
+
+        // Fallback for alternate backend route variants.
+        if (res.status === 404) {
+            res = await fetch(`${API_BASE}/admin/poster/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ eventId, template, heroImage }),
+            });
+        }
+
         return res.json();
     },
 };

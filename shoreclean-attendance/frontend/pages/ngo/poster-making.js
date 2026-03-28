@@ -63,10 +63,12 @@ export default function PosterMakingPage() {
 
   const handleBroadcast = async () => {
     try {
-      await announcementsAPI.sendEmail(eventId);
-      toast('success', 'Announcements sent to all volunteers!');
+      const res = await announcementsAPI.sendEmail(eventId);
+      const msg = res?.data?.message || 'Announcements sent successfully.';
+      toast('success', msg);
     } catch (err) {
-      toast('error', 'Failed to send broadcast');
+      const serverMessage = err?.response?.data?.details || err?.response?.data?.message;
+      toast('error', serverMessage || 'Failed to send broadcast');
     }
   };
 

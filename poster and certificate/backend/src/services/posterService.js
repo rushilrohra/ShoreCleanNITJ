@@ -14,6 +14,7 @@
 const axios = require('axios');
 const sharp = require('sharp');
 const cloudinary = require('cloudinary').v2;
+const { getExternalApiConfig } = require('../utils/axiosConfig');
 
 const POSTER_WIDTH  = 1200;
 const POSTER_HEIGHT = 800;
@@ -76,6 +77,10 @@ async function generateStabilityImage(eventTitle, eventLocation) {
     console.log('🤖 Calling Stability AI for poster image...');
 
     try {
+        const config = getExternalApiConfig({
+            Authorization: `Bearer ${process.env.STABILITY_AI_KEY}`,
+        });
+
         const response = await axios.post(
             'https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image',
             {
@@ -89,14 +94,7 @@ async function generateStabilityImage(eventTitle, eventLocation) {
                 steps:        30,
                 samples:      1,
             },
-            {
-                headers: {
-                    Authorization: `Bearer ${process.env.STABILITY_AI_KEY}`,
-                    'Content-Type': 'application/json',
-                    Accept: 'application/json',
-                },
-                timeout: 60000,
-            }
+            config
         );
 
         const base64Image = response.data.artifacts[0].base64;

@@ -1,4 +1,6 @@
 const sharp = require('sharp');
+const axios = require('axios');
+const { getExternalApiConfig } = require('../utils/axiosConfig');
 const { generateStabilityImage, generateSocialCaptions } = require('./ai');
 const { uploadBuffer } = require('./cloudinary');
 const { query } = require('../config/db');
@@ -32,9 +34,25 @@ async function createPoster(eventDetails) {
   const dateLabel = escapeXml(formatEventDate(eventDetails.event_date));
 
   const prompt = `Photorealistic scene of volunteers cleaning ${location} beach on a sunny day with turquoise waves. Modern, vibrant, professional photography. High resolution.`;
-  
-  console.log(`🤖 Generating AI image for: ${location}...`);
-  const imageBuffer = await generateStabilityImage(prompt);
+
+  let imageBuffer;
+  try {
+    console.log(`🤖 Generating AI image for: ${location}...`);
+    imageBuffer = await generateStabilityImage(prompt);
+  } catch (error) {
+    // Keep poster flow alive even if Stability key/quota is unavailable.
+    console.warn('⚠️ Stability generation failed, using fallback gradient background:', error.message);
+    imageBuffer = await sharp({
+      create: {
+        width: POSTER_WIDTH,
+        height: POSTER_HEIGHT,
+        channels: 3,
+        background: { r: 15, g: 76, b: 129 },
+      },
+    })
+      .png()
+      .toBuffer();
+  }
 
   const gradientSvg = `
   <svg width="${POSTER_WIDTH}" height="${POSTER_HEIGHT}" xmlns="http://www.w3.org/2000/svg">

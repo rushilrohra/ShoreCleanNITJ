@@ -92,7 +92,7 @@ router.get('/certificate-stats', authMiddleware, async (req, res) => {
 
 // ─── POST: Generate AI Poster ──────────────────────────────────────────────────
 // No auth required — demo-friendly
-router.post('/generate-poster', async (req, res) => {
+const handleGeneratePoster = async (req, res) => {
     try {
         const { eventId } = req.body;
         const adminEmail = process.env.EMAIL_USER;
@@ -158,11 +158,14 @@ router.post('/generate-poster', async (req, res) => {
         console.error('❌ Poster generation error:', error.message);
         res.status(500).json({ error: error.message });
     }
-});
+};
+
+router.post('/generate-poster', handleGeneratePoster);
+router.post('/poster/generate', handleGeneratePoster);
 
 // ─── POST: Send Event Announcement to All Volunteers ──────────────────────────
 // No auth required — admin manually clicks this button
-router.post('/send-announcement', async (req, res) => {
+const handleSendAnnouncement = async (req, res) => {
     try {
         const { eventId } = req.body;
 
@@ -203,6 +206,9 @@ router.post('/send-announcement', async (req, res) => {
         console.error('❌ Send announcement error:', error.message);
         res.status(500).json({ error: error.message });
     }
-});
+};
+
+router.post('/send-announcement', handleSendAnnouncement);
+router.post('/announcement/send', handleSendAnnouncement);
 
 module.exports = router;

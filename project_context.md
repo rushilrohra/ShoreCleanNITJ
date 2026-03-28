@@ -37,7 +37,7 @@ A teammate built the QR attendance module as a separate Next.js/Express app. We 
 1. **Frontend:** Their Next.js `VolunteerScanner` was ported to React (`frontend/src/pages/ScannerPage.js`) using `html5-qrcode`.
 2. **Backend Routes:** Their `scan.js` and `registrations.js` routes were copied into our `backend/src/routes/` and mounted in our `index.js`.
 3. **Database Adapter:** Because their code used `const { query } = require('../config/db')`, we created an adapter at `backend/src/config/db-query.js` to route their queries through our existing `pg` pool.
-4. **Database Schema Fix:** Their app used `UUID` for foreign keys, but our core app uses `SERIAL` (Integers). We wrote a migration (`add_teammate_tables.sql`) that safely adds their `event_registrations` and `scan_logs` tables using `INTEGER REFERENCES` to match our schema.
+4. **Database Schema Fix:** The workspace now uses a single unified SQL schema file at `unified_database.sql`, and both backends point to one shared PostgreSQL database.
 
 ---
 

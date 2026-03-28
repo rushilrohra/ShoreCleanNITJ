@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+import { eventsApi, scanApi } from '../services/api';
 
 // ─── Normalize decoded QR text ─────────────────────────────────────────────────
 function normalizeQr(raw) {
@@ -17,16 +16,6 @@ function normalizeQr(raw) {
         return String(url.searchParams.get('qr_token') || url.searchParams.get('token') || text).trim();
     } catch { /* not a URL */ }
     return text;
-}
-
-// ─── Call our backend scan API ─────────────────────────────────────────────────
-async function callScanApi(qr_token, scan_type, event_id) {
-    const res = await fetch(`${API_BASE}/scan`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ qr_token, scan_type, event_id }),
-    });
-    return res.json();
 }
 
 // ─── Safely stop and clear scanner ─────────────────────────────────────────────
@@ -58,9 +47,8 @@ export default function ScannerPage() {
 
     // Load events
     useEffect(() => {
-        fetch(`${API_BASE}/events`)
-            .then(r => r.json())
-            .then(data => setEvents(Array.isArray(data) ? data : []))
+        eventsApi.getAll()
+            .then((data) => setEvents(Array.isArray(data) ? data : []))
             .catch(() => {});
     }, []);
 
@@ -74,7 +62,7 @@ export default function ScannerPage() {
         try { scannerInstance?.pause(true); } catch {}
 
         try {
-            const data = await callScanApi(token, scanTypeRef.current, selectedEventRef.current || undefined);
+            const data = await scanApi.scan(token, scanTypeRef.current, selectedEventRef.current || undefined);
 
             if (data.success || data.message?.includes('✓')) {
                 setLastResult({ success: true, message: data.message, name: data.volunteer_name });
@@ -99,7 +87,6 @@ export default function ScannerPage() {
     useEffect(() => {
         if (typeof window === 'undefined') return;
         let cancelled = false;
-        let localScanner = null;
 
         (async () => {
             try {
@@ -119,7 +106,6 @@ export default function ScannerPage() {
                 const cameraId = cameras[0].id;
 
                 const scanner = new Html5Qrcode('qr-reader-div');
-                localScanner = scanner;
                 scannerRef.current = scanner;
 
                 // 3. Start scanning
@@ -156,7 +142,6 @@ export default function ScannerPage() {
                 scannerRef.current = null;
                 void safeStopAndClear(s);
             }
-            localScanner = null;
         };
     }, [scannerKey, handleDecode]);
 

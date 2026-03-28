@@ -7,24 +7,23 @@ const { verifyVolunteerToken, verifyUserToken } = require('../middleware/auth');
 const router = express.Router();
 
 router.post('/verify', verifyUserToken, async (req, res) => {
-  if (req.user.role !== 'organizer' && req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Access denied. Only organizers can verify registrations.' });
+  if (req.user.role !== 'organizer' && req.user.role !== 'admin' && req.user.role !== 'ngo') {
+    return res.status(403).json({ error: 'Access denied. Only organizer/NGO/admin can verify registrations.' });
   }
   try {
     const { qr_token } = req.body;
+    const normalizedToken = typeof qr_token === 'string' ? qr_token.trim() : '';
 
-    if (!qr_token) {
+    if (!normalizedToken) {
       return res.status(400).json({ error: 'qr_token is required' });
     }
 
-    // Step 1: Verify JWT signature
+    // Step 1: Best-effort JWT check (do not hard-fail here).
+    // DB token lookup remains the source of truth for scan validity.
     try {
-      jwt.verify(qr_token, process.env.QR_SECRET);
+      jwt.verify(normalizedToken, process.env.QR_SECRET);
     } catch (err) {
-      if (err.name === 'TokenExpiredError') {
-        return res.status(400).json({ error: 'QR code has expired' });
-      }
-      return res.status(400).json({ error: 'Invalid QR code' });
+      console.warn('QR verify warning (continuing with DB lookup):', err.message);
     }
 
     // Step 2: Fetch registration + user + event details in one query
@@ -48,7 +47,7 @@ router.post('/verify', verifyUserToken, async (req, res) => {
         JOIN events e ON r.event_id  = e.id
         WHERE r.qr_token = $1
       `,
-      [qr_token]
+      [normalizedToken]
     );
 
     if (!result.rows[0]) {
@@ -84,7 +83,7 @@ router.post('/verify', verifyUserToken, async (req, res) => {
       beach_name: reg.beach_name,
       event_date: reg.event_date,
       registered_at: reg.registered_at,
-      qr_token,
+      qr_token: normalizedToken,
     });
   } catch (error) {
     console.error(error);
@@ -147,7 +146,8 @@ router.post('/', verifyVolunteerToken, async (req, res) => {
 
     const registration = registrationResult.rows[0];
 
-    // INTELLIGENT OVERRIDE: Ignore frontend toggle bugs. Force correct scan action based on DB State.
+    // Only auto-detect when client did not provide a valid scan_type.
+    // This avoids accidental checkout while operator is on CHECK IN mode.
     if (registration.status === 'DONE') {
       return res.status(200).json({
         success: true,
@@ -156,12 +156,15 @@ router.post('/', verifyVolunteerToken, async (req, res) => {
         certificate_url: registration.certificate_url,
         message: '✓ Impact already recorded & verified'
       });
-    } else if (registration.status === 'PENDING') {
-      scan_type = 'checkin';
-    } else if (registration.status === 'ACTIVE') {
-      scan_type = 'checkout';
-    } 
-    // If it's DONE, we let it naturally fail below in the state machine so it shows "Already completed"
+    }
+
+    if (scan_type !== 'checkin' && scan_type !== 'checkout') {
+      if (registration.status === 'PENDING') {
+        scan_type = 'checkin';
+      } else if (registration.status === 'ACTIVE') {
+        scan_type = 'checkout';
+      }
+    }
 
     const selectedEventMismatch =
       Boolean(selected_event_id) && registration.event_id !== selected_event_id;

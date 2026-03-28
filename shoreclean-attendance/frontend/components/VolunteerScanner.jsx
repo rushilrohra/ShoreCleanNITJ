@@ -253,10 +253,24 @@ export default function VolunteerScanner(props) {
             const response = await scanAPI.verify(normalizedQr);
             setVerifyData(response.data);
           } catch (verifyErr) {
-            // Resilience path: if verify route is unavailable on an older backend,
-            // fallback to legacy direct check-in to avoid blocking organizers.
-            if (verifyErr?.response?.status === 404) {
-              debugWarn('verify route unavailable, falling back to direct check-in');
+            // Resilience path: fallback to direct check-in when verify fails due route/auth/server issues.
+            // Never fallback on 409 (state conflict) to avoid unintended checkout transitions.
+            const verifyStatus = verifyErr?.response?.status;
+            const verifyMessage = String(
+              verifyErr?.response?.data?.error || verifyErr?.response?.data?.message || ''
+            );
+            const canFallbackToDirectScan =
+              verifyStatus === 401 ||
+              verifyStatus === 403 ||
+              verifyStatus === 404 ||
+              verifyStatus >= 500 ||
+              (verifyStatus === 400 && verifyMessage.toLowerCase().includes('expired'));
+
+            if (canFallbackToDirectScan) {
+              debugWarn('verify failed, falling back to direct check-in', {
+                verifyStatus,
+                verifyMessage,
+              });
               const response = await scanAPI.scan(normalizedQr, 'checkin', selectedEventId);
               const data = response.data;
               setLastResult({ success: true, ...data });
@@ -295,7 +309,10 @@ export default function VolunteerScanner(props) {
           }, 3000);
         }
       } catch (err) {
-        const message = err.response?.data?.error || 'Scan failed. Please try again.';
+        const message =
+          err.response?.data?.error ||
+          err.response?.data?.message ||
+          'Scan failed. Please try again.';
         const status = err.response?.data?.status;
         debugWarn('scan API failed', {
           message,

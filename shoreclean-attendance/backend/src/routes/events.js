@@ -43,7 +43,7 @@ function normalizeTwoLineDescription(text, title, beachName, location) {
 }
 
 async function generateDescriptionWithGemini({ title, beachName, location }) {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) {
     const err = new Error('Missing GEMINI_API_KEY');
     err.statusCode = 500;
@@ -56,7 +56,7 @@ async function generateDescriptionWithGemini({ title, beachName, location }) {
     throw err;
   }
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
   const prompt = [
     'Generate exactly two lines for an NGO beach-cleanup event description.',
     'Be slightly descriptive and a little elaborative, while still concise.',
@@ -76,6 +76,7 @@ async function generateDescriptionWithGemini({ title, beachName, location }) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
     },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -162,8 +163,8 @@ router.get('/', async (req, res) => {
       `
         SELECT
           e.id, e.title, e.description,
-          e.location_name AS location, e.location_name AS beach_name,
-          e.event_date, e.start_time, e.end_time, e.status, e.organizer_id AS created_by,
+          e.location AS location, e.location AS beach_name,
+          e.event_date, e.start_time, e.end_time, e.status, e.created_by AS created_by,
           e.poster_url, e.social_caption,
           100 AS max_volunteers,
           COUNT(r.id) as registered_count
@@ -190,8 +191,8 @@ router.get('/my', verifyUserToken, async (req, res) => {
     const myEvents = await query(
       `
         SELECT e.id, e.title, e.description,
-          e.location_name AS location, e.location_name AS beach_name,
-          e.event_date, e.start_time, e.end_time, e.status, e.organizer_id AS created_by,
+          e.location AS location, e.location AS beach_name,
+          e.event_date, e.start_time, e.end_time, e.status, e.created_by AS created_by,
           e.poster_url, e.social_caption,
           100 AS max_volunteers,
           COUNT(r.id)::int                                        AS registered_count,
@@ -201,7 +202,7 @@ router.get('/my', verifyUserToken, async (req, res) => {
           COUNT(CASE WHEN r.status='ABSENT'  THEN 1 END)::int    AS absent_count
         FROM events e
         LEFT JOIN event_registrations r ON e.id = r.event_id
-        WHERE e.organizer_id = $1
+        WHERE e.created_by = $1
         GROUP BY e.id
         ORDER BY e.event_date DESC
       `,
@@ -227,7 +228,7 @@ router.put('/:id', verifyUserToken, async (req, res) => {
     }
 
     const event = eventCheck.rows[0];
-    if (event.organizer_id !== req.user.userId && req.user.role !== 'admin') {
+    if (event.created_by !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own events' });
     }
 
@@ -267,12 +268,12 @@ router.put('/:id', verifyUserToken, async (req, res) => {
 
     // Explicitly parse frontend fields into DB fields
     if (normalizedBody.location) {
-        normalizedBody.location_name = normalizedBody.location;
+      normalizedBody.location = String(normalizedBody.location).trim();
     }
 
     for (const key of allowed) {
       if (normalizedBody[key] !== undefined) {
-        if (key === 'location_name' || key === 'title' || key === 'description' || key === 'latitude' || key === 'longitude' || key === 'event_date' || key === 'start_time' || key === 'end_time' || key === 'status') {
+          if (key === 'location' || key === 'title' || key === 'description' || key === 'latitude' || key === 'longitude' || key === 'event_date' || key === 'start_time' || key === 'end_time' || key === 'status' || key === 'max_volunteers') {
            fields.push(`${key} = $${idx++}`);
            values.push(normalizedBody[key]);
         }
@@ -307,7 +308,7 @@ router.delete('/:id', verifyUserToken, async (req, res) => {
     }
 
     const event = eventCheck.rows[0];
-    if (event.organizer_id !== req.user.userId && req.user.role !== 'admin') {
+    if (event.created_by !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own events' });
     }
 
@@ -355,7 +356,7 @@ router.get('/:id/registrations/export', verifyUserToken, async (req, res) => {
     }
 
     const event = eventCheck.rows[0];
-    if (event.organizer_id !== req.user.userId && req.user.role !== 'admin') {
+    if (event.created_by !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own events' });
     }
 
@@ -413,7 +414,7 @@ router.get('/:id/registrations', verifyUserToken, async (req, res) => {
     }
 
     const event = eventCheck.rows[0];
-    if (event.organizer_id !== req.user.userId && req.user.role !== 'admin') {
+    if (event.created_by !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own events' });
     }
 
@@ -466,7 +467,7 @@ router.patch('/:id/registrations/:reg_id/status', verifyUserToken, async (req, r
     }
 
     const event = eventCheck.rows[0];
-    if (event.organizer_id !== req.user.userId && req.user.role !== 'admin') {
+    if (event.created_by !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own events' });
     }
 
@@ -509,8 +510,8 @@ router.get('/:id', async (req, res) => {
       `
         SELECT
           e.id, e.title, e.description,
-          e.location_name AS location, e.location_name AS beach_name,
-          e.event_date, e.start_time, e.end_time, e.status, e.organizer_id AS created_by,
+          e.location AS location, e.location AS beach_name,
+          e.event_date, e.start_time, e.end_time, e.status, e.created_by AS created_by,
           100 AS max_volunteers,
           COUNT(r.id) as registered_count
         FROM events e
@@ -571,13 +572,13 @@ router.post('/', verifyUserToken, async (req, res) => {
         INSERT INTO events (
           title,
           description,
-          location_name,
+          location,
           latitude,
           longitude,
           event_date,
           start_time,
           end_time,
-          organizer_id
+          created_by
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *
