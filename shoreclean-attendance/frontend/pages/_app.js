@@ -1,4 +1,5 @@
 import '../styles/globals.css';
+import 'leaflet/dist/leaflet.css';
 import Navbar from '../components/Navbar';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';

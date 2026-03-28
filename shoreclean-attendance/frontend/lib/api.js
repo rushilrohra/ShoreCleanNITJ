@@ -38,6 +38,7 @@ export const eventsAPI = {
   getAll: () => api.get('/api/events'),
   getById: (id) => api.get(`/api/events/${id}`),
   create: (data) => api.post('/api/events', data),
+  generateDescription: (data) => api.post('/api/events/generate-description', data),
   getMyEvents: () => api.get('/api/events/my'),
   update: (id, data) => api.put(`/api/events/${id}`, data),
   remove: (id) => api.delete(`/api/events/${id}`),

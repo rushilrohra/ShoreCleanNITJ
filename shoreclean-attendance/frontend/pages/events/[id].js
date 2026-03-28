@@ -1,8 +1,13 @@
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
 import { NavSpacer } from '../../components/Navbar';
 import { eventsAPI, registrationsAPI } from '../../lib/api';
+
+const DynamicEventLocationMap = dynamic(() => import('../../components/EventLocationMap'), {
+  ssr: false,
+});
 
 const GRADIENTS = [
   'linear-gradient(160deg, #1a4f8a, #2e9fd6)',
@@ -28,6 +33,11 @@ const isPast = (d) => {
 };
 
 const FAKE_NAMES = ['R. Sharma', 'A. Kumar', 'P. Singh', 'M. Patel', 'S. Nair', 'V. Desai'];
+
+const parseCoordinate = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
 
 export default function EventDetailsPage() {
   const router = useRouter();
@@ -86,6 +96,8 @@ export default function EventDetailsPage() {
   const remaining = Math.max(maxVolunteers - registeredCount, 0);
   const pct = Math.min((registeredCount / (maxVolunteers || 1)) * 100, 100);
   const gradientBg = GRADIENTS[(Number(id) || 0) % GRADIENTS.length];
+  const latitude = parseCoordinate(event?.latitude);
+  const longitude = parseCoordinate(event?.longitude);
 
   const handleRegister = async () => {
     if (!event?.id) return;
@@ -156,13 +168,35 @@ export default function EventDetailsPage() {
 
                 <div className="card" style={{ marginTop: 'var(--sp-4)' }} data-aos="fade-up" data-aos-delay="200">
                   <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 700, marginBottom: 'var(--sp-3)' }}>Location</h2>
-                  <div style={{ background: 'var(--ocean-100)', borderRadius: 'var(--r-md)', padding: 'var(--sp-6)', textAlign: 'center' }}>
-                    <div style={{ fontSize: 32, marginBottom: 'var(--sp-2)' }}>📍</div>
-                    <div style={{ fontWeight: 600, fontSize: 16 }}>{event.location}</div>
-                    <a href={`https://maps.google.com?q=${encodeURIComponent(event.location)}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" style={{ marginTop: 'var(--sp-3)' }}>
-                      Open in Maps →
-                    </a>
-                  </div>
+                  {latitude !== null && longitude !== null ? (
+                    <>
+                      <DynamicEventLocationMap latitude={latitude} longitude={longitude} height={280} />
+                      <div style={{ marginTop: 'var(--sp-3)', display: 'flex', justifyContent: 'space-between', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 16 }}>{event.location}</div>
+                          <p className="text-sm text-muted" style={{ marginTop: 2 }}>
+                            Coordinates: {latitude}, {longitude}
+                          </p>
+                        </div>
+                        <a
+                          href={`https://maps.google.com/?q=${latitude},${longitude}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-secondary btn-sm"
+                        >
+                          Open in Maps →
+                        </a>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ background: 'var(--ocean-100)', borderRadius: 'var(--r-md)', padding: 'var(--sp-6)', textAlign: 'center' }}>
+                      <div style={{ fontSize: 32, marginBottom: 'var(--sp-2)' }}>📍</div>
+                      <div style={{ fontWeight: 600, fontSize: 16 }}>{event.location}</div>
+                      <a href={`https://maps.google.com?q=${encodeURIComponent(event.location)}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" style={{ marginTop: 'var(--sp-3)' }}>
+                        Open in Maps →
+                      </a>
+                    </div>
+                  )}
                 </div>
 
                 <div className="card" style={{ marginTop: 'var(--sp-4)' }} data-aos="fade-up" data-aos-delay="300">

@@ -18,10 +18,13 @@ CREATE TABLE events (
   title          TEXT NOT NULL,
   description    TEXT,
   location       TEXT NOT NULL,
+  latitude       DOUBLE PRECISION,
+  longitude      DOUBLE PRECISION,
   beach_name     TEXT NOT NULL,
   event_date     DATE NOT NULL,
   start_time     TIME NOT NULL,
   end_time       TIME NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled', 'completed')),
   max_volunteers INT DEFAULT 100,
   created_by     UUID REFERENCES users(id),
   created_at     TIMESTAMPTZ DEFAULT NOW()

@@ -1,20 +1,65 @@
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
 
 import { NavSpacer } from '../../components/Navbar';
 import { eventsAPI } from '../../lib/api';
 
+const DynamicMapLocationPicker = dynamic(() => import('../../components/MapLocationPicker'), {
+  ssr: false,
+});
+
 const initialCreateForm = {
   title: '',
   description: '',
   beach_name: '',
   location: '',
+  latitude: null,
+  longitude: null,
   event_date: '',
   start_time: '',
   end_time: '',
   max_volunteers: 100,
 };
+
+const parseCoordinate = (value) => {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+async function geocodeLocation(query) {
+  const q = String(query || '').trim();
+  if (!q) return null;
+
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
+    { headers: { Accept: 'application/json' } }
+  );
+
+  if (!response.ok) return null;
+  const rows = await response.json();
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  const first = rows[0];
+  return {
+    latitude: Number(Number(first.lat).toFixed(6)),
+    longitude: Number(Number(first.lon).toFixed(6)),
+    address: first.display_name,
+  };
+}
+
+async function reverseGeocode(latitude, longitude) {
+  const response = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`,
+    { headers: { Accept: 'application/json' } }
+  );
+
+  if (!response.ok) return null;
+  const data = await response.json();
+  return data?.display_name || null;
+}
 
 function formatEventDate(dateValue) {
   if (!dateValue) return '—';
@@ -68,6 +113,9 @@ export default function NGODashboardPage() {
   const [createError, setCreateError] = useState('');
   const [createSuccess, setCreateSuccess] = useState('');
   const [regSearch, setRegSearch] = useState('');
+  const [createGeoLoading, setCreateGeoLoading] = useState(false);
+  const [editGeoLoading, setEditGeoLoading] = useState(false);
+  const [descriptionLoading, setDescriptionLoading] = useState({ create: false, edit: false });
 
   const [createFieldErrors, setCreateFieldErrors] = useState({});
   const [editForm, setEditForm] = useState(null);
@@ -193,6 +241,8 @@ export default function NGODashboardPage() {
       description: event.description || '',
       beach_name: event.beach_name || '',
       location: event.location || '',
+      latitude: parseCoordinate(event.latitude),
+      longitude: parseCoordinate(event.longitude),
       event_date: event.event_date || '',
       start_time: String(event.start_time || '').slice(0, 5),
       end_time: String(event.end_time || '').slice(0, 5),
@@ -212,6 +262,11 @@ export default function NGODashboardPage() {
   const submitEdit = async () => {
     if (!editModal.event || !editForm) return;
 
+    if (editForm.latitude === null || editForm.longitude === null) {
+      setEditError('Pick the exact event location on map before saving.');
+      return;
+    }
+
     setEditLoading(true);
     setEditError('');
     try {
@@ -220,6 +275,8 @@ export default function NGODashboardPage() {
         description: editForm.description,
         beach_name: editForm.beach_name,
         location: editForm.location,
+        latitude: editForm.latitude,
+        longitude: editForm.longitude,
         event_date: editForm.event_date,
         start_time: editForm.start_time,
         end_time: editForm.end_time,
@@ -268,6 +325,9 @@ export default function NGODashboardPage() {
     if (!createForm.title.trim()) nextErrors.title = 'Title is required.';
     if (!createForm.beach_name.trim()) nextErrors.beach_name = 'Beach name is required.';
     if (!createForm.location.trim()) nextErrors.location = 'Location is required.';
+    if (createForm.latitude === null || createForm.longitude === null) {
+      nextErrors.location = 'Pick the exact event pin on map.';
+    }
     if (!createForm.event_date) nextErrors.event_date = 'Event date is required.';
     if (!createForm.start_time) nextErrors.start_time = 'Start time is required.';
     if (!createForm.end_time) nextErrors.end_time = 'End time is required.';
@@ -292,6 +352,8 @@ export default function NGODashboardPage() {
         title: createForm.title,
         beach_name: createForm.beach_name,
         location: createForm.location,
+        latitude: createForm.latitude,
+        longitude: createForm.longitude,
         description: createForm.description,
         event_date: createForm.event_date,
         start_time: createForm.start_time,
@@ -308,6 +370,127 @@ export default function NGODashboardPage() {
       setCreateError(error?.response?.data?.error || 'Something went wrong');
     } finally {
       setCreateLoading(false);
+    }
+  };
+
+  const handleLocateCreate = async () => {
+    if (!createForm.location.trim()) {
+      setCreateFieldErrors((prev) => ({ ...prev, location: 'Enter location text first.' }));
+      return;
+    }
+
+    setCreateGeoLoading(true);
+    try {
+      const result = await geocodeLocation(createForm.location);
+      if (!result) {
+        toast('error', 'Location not found. Please refine the address.');
+        return;
+      }
+      setCreateForm((prev) => ({
+        ...prev,
+        location: result.address || prev.location,
+        latitude: result.latitude,
+        longitude: result.longitude,
+      }));
+      setCreateFieldErrors((prev) => ({ ...prev, location: '' }));
+      toast('success', 'Location pinned on map. Adjust by clicking the map if needed.');
+    } catch {
+      toast('error', 'Unable to search location right now.');
+    } finally {
+      setCreateGeoLoading(false);
+    }
+  };
+
+  const handleCreateMapChange = async ({ latitude, longitude }) => {
+    setCreateForm((prev) => ({ ...prev, latitude, longitude }));
+    try {
+      const display = await reverseGeocode(latitude, longitude);
+      if (display) {
+        setCreateForm((prev) => ({ ...prev, location: display }));
+      }
+    } catch {
+      // Keep manually entered location if reverse geocoding fails.
+    }
+  };
+
+  const handleLocateEdit = async () => {
+    if (!editForm?.location?.trim()) {
+      setEditError('Enter location text first.');
+      return;
+    }
+
+    setEditGeoLoading(true);
+    setEditError('');
+    try {
+      const result = await geocodeLocation(editForm.location);
+      if (!result) {
+        setEditError('Location not found. Please refine the address.');
+        return;
+      }
+      setEditForm((prev) => ({
+        ...prev,
+        location: result.address || prev.location,
+        latitude: result.latitude,
+        longitude: result.longitude,
+      }));
+      toast('success', 'Location pinned on map.');
+    } catch {
+      setEditError('Unable to search location right now.');
+    } finally {
+      setEditGeoLoading(false);
+    }
+  };
+
+  const handleEditMapChange = async ({ latitude, longitude }) => {
+    setEditForm((prev) => ({ ...prev, latitude, longitude }));
+    try {
+      const display = await reverseGeocode(latitude, longitude);
+      if (display) {
+        setEditForm((prev) => ({ ...prev, location: display }));
+      }
+    } catch {
+      // Keep manually entered location if reverse geocoding fails.
+    }
+  };
+
+  const generateDescription = async (target) => {
+    const form = target === 'create' ? createForm : editForm;
+    if (!form) return;
+
+    const payload = {
+      title: form.title,
+      beach_name: form.beach_name,
+      location: form.location,
+    };
+
+    if (!payload.title?.trim() || !payload.beach_name?.trim() || !payload.location?.trim()) {
+      const message = 'Add title, beach name, and location first to generate description.';
+      if (target === 'create') setCreateError(message);
+      else setEditError(message);
+      return;
+    }
+
+    setDescriptionLoading((prev) => ({ ...prev, [target]: true }));
+    if (target === 'create') setCreateError('');
+    else setEditError('');
+
+    try {
+      const res = await eventsAPI.generateDescription(payload);
+      const text = String(res?.data?.description || '').trim();
+      if (!text) throw new Error('No generated text');
+
+      if (target === 'create') {
+        setCreateForm((prev) => ({ ...prev, description: text }));
+      } else {
+        setEditForm((prev) => ({ ...prev, description: text }));
+      }
+      toast('success', 'Description generated. You can still edit it.');
+    } catch {
+      const msg = 'Failed to generate description. Please try again.';
+      if (target === 'create') setCreateError(msg);
+      else setEditError(msg);
+    } finally {
+      setDescriptionLoading((prev) => ({ ...prev, [target]: false }));
     }
   };
 
@@ -498,17 +681,43 @@ export default function NGODashboardPage() {
 
                 <div className="form-group">
                   <label className="form-label">Location*</label>
-                  <input
-                    className="form-input"
-                    placeholder="Full address for volunteers to navigate to"
-                    value={createForm.location}
-                    onChange={(e) => handleCreateChange('location', e.target.value)}
+                  <div className="flex gap-2">
+                    <input
+                      className="form-input"
+                      placeholder="Full address for volunteers to navigate to"
+                      value={createForm.location}
+                      onChange={(e) => handleCreateChange('location', e.target.value)}
+                    />
+                    <button type="button" className="btn btn-secondary" onClick={handleLocateCreate} disabled={createGeoLoading}>
+                      {createGeoLoading ? 'Finding...' : 'Find on Map'}
+                    </button>
+                  </div>
+                  <DynamicMapLocationPicker
+                    latitude={createForm.latitude}
+                    longitude={createForm.longitude}
+                    onChange={handleCreateMapChange}
+                    height={300}
                   />
+                  {createForm.latitude !== null && createForm.longitude !== null && (
+                    <span className="form-hint">
+                      Pinned coordinates: {createForm.latitude}, {createForm.longitude}
+                    </span>
+                  )}
                   {createFieldErrors.location && <span className="form-error">{createFieldErrors.location}</span>}
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Description</label>
+                  <div className="flex items-center justify-between" style={{ gap: 'var(--sp-3)' }}>
+                    <label className="form-label">Description</label>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => generateDescription('create')}
+                      disabled={descriptionLoading.create}
+                    >
+                      {descriptionLoading.create ? 'Generating...' : 'Generate Description'}
+                    </button>
+                  </div>
                   <textarea className="form-input" value={createForm.description} onChange={(e) => handleCreateChange('description', e.target.value)} />
                 </div>
 
@@ -781,12 +990,39 @@ export default function NGODashboardPage() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Location</label>
-                    <input className="form-input" value={editForm.location} onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))} />
+                    <div className="flex gap-2">
+                      <input className="form-input" value={editForm.location} onChange={(e) => setEditForm((f) => ({ ...f, location: e.target.value }))} />
+                      <button type="button" className="btn btn-secondary" onClick={handleLocateEdit} disabled={editGeoLoading}>
+                        {editGeoLoading ? 'Finding...' : 'Find on Map'}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
+                <DynamicMapLocationPicker
+                  latitude={editForm.latitude}
+                  longitude={editForm.longitude}
+                  onChange={handleEditMapChange}
+                  height={280}
+                />
+                {editForm.latitude !== null && editForm.longitude !== null && (
+                  <span className="form-hint">
+                    Pinned coordinates: {editForm.latitude}, {editForm.longitude}
+                  </span>
+                )}
+
                 <div className="form-group">
-                  <label className="form-label">Description</label>
+                  <div className="flex items-center justify-between" style={{ gap: 'var(--sp-3)' }}>
+                    <label className="form-label">Description</label>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => generateDescription('edit')}
+                      disabled={descriptionLoading.edit}
+                    >
+                      {descriptionLoading.edit ? 'Generating...' : 'Generate Description'}
+                    </button>
+                  </div>
                   <textarea className="form-input" value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} />
                 </div>
 

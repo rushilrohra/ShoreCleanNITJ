@@ -3,6 +3,155 @@ const { query } = require('../config/db');
 const { verifyUserToken } = require('../middleware/auth');
 
 const router = express.Router();
+const GEMINI_MODEL = 'gemini-2.5-flash';
+
+function normalizeTwoLineDescription(text, title, beachName, location) {
+  const fallback = [
+    `Join ${title} at ${beachName} in ${location} for a focused, community-driven beach cleanup.`,
+    'Help remove shoreline waste, support segregation, and leave the coast cleaner and safer for everyone.',
+  ];
+
+  if (!text || typeof text !== 'string') {
+    return fallback.join('\n');
+  }
+
+  const lines = text
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/^[-*\d.)\s]+/, '').trim())
+    .filter(Boolean);
+
+  if (lines.length >= 2) {
+    return `${lines[0]}\n${lines[1]}`;
+  }
+
+  const sentenceParts = text
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (sentenceParts.length >= 2) {
+    return `${sentenceParts[0]}\n${sentenceParts[1]}`;
+  }
+
+  if (sentenceParts.length === 1) {
+    return `${sentenceParts[0]}\n${fallback[1]}`;
+  }
+
+  return fallback.join('\n');
+}
+
+async function generateDescriptionWithGemini({ title, beachName, location }) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    const err = new Error('Missing GEMINI_API_KEY');
+    err.statusCode = 500;
+    throw err;
+  }
+
+  if (typeof fetch !== 'function') {
+    const err = new Error('Fetch API is not available in this Node.js runtime');
+    err.statusCode = 500;
+    throw err;
+  }
+
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const prompt = [
+    'Generate exactly two short lines for an NGO event description.',
+    'Do not use bullet points, emojis, headings, or numbering.',
+    'Keep the tone warm, action-oriented, and professional.',
+    'Line 1 should mention the event and location.',
+    'Line 2 should mention impact and volunteer invitation.',
+    '',
+    `Event title: ${title}`,
+    `Beach name: ${beachName}`,
+    `Location: ${location}`,
+  ].join('\n');
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 120,
+        responseMimeType: 'text/plain',
+      },
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = payload?.error?.message || 'Gemini API request failed';
+    const err = new Error(detail);
+    err.statusCode = response.status;
+    throw err;
+  }
+
+  const rawText = (payload?.candidates || [])
+    .flatMap((c) => c?.content?.parts || [])
+    .map((p) => p?.text || '')
+    .join(' ')
+    .trim();
+
+  return normalizeTwoLineDescription(rawText, title, beachName, location);
+}
+
+function sanitizeCoordinate(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function validateCoordinates(latitude, longitude) {
+  if (latitude !== null && (Number.isNaN(latitude) || latitude < -90 || latitude > 90)) {
+    return 'Latitude must be between -90 and 90';
+  }
+  if (longitude !== null && (Number.isNaN(longitude) || longitude < -180 || longitude > 180)) {
+    return 'Longitude must be between -180 and 180';
+  }
+  if ((latitude === null) !== (longitude === null)) {
+    return 'Both latitude and longitude are required for map location';
+  }
+  return null;
+}
+
+router.post('/generate-description', verifyUserToken, async (req, res) => {
+  try {
+    if (!['ngo', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'NGO access required' });
+    }
+
+    const title = String(req.body?.title || '').trim();
+    const beachName = String(req.body?.beach_name || '').trim();
+    const location = String(req.body?.location || '').trim();
+
+    if (!title || !beachName || !location) {
+      return res.status(400).json({
+        error: 'title, beach_name and location are required to generate description',
+      });
+    }
+
+    const generated = await generateDescriptionWithGemini({ title, beachName, location });
+    return res.status(200).json({ description: generated });
+  } catch (error) {
+    if (error.statusCode && Number(error.statusCode) >= 400 && Number(error.statusCode) < 500) {
+      return res.status(502).json({
+        error: 'Description generation provider request failed',
+        details: error.message,
+      });
+    }
+
+    return res.status(500).json({
+      error: 'Unable to generate description right now',
+      details: error.message,
+    });
+  }
+});
 
 router.get('/', async (req, res) => {
   try {
@@ -74,6 +223,8 @@ router.put('/:id', verifyUserToken, async (req, res) => {
       'title',
       'description',
       'location',
+      'latitude',
+      'longitude',
       'beach_name',
       'event_date',
       'start_time',
@@ -82,10 +233,27 @@ router.put('/:id', verifyUserToken, async (req, res) => {
       'status',
     ];
 
+    const normalizedBody = { ...req.body };
+    if (Object.prototype.hasOwnProperty.call(normalizedBody, 'latitude')) {
+      normalizedBody.latitude = sanitizeCoordinate(normalizedBody.latitude);
+    }
+    if (Object.prototype.hasOwnProperty.call(normalizedBody, 'longitude')) {
+      normalizedBody.longitude = sanitizeCoordinate(normalizedBody.longitude);
+    }
+
+    const latProvided = Object.prototype.hasOwnProperty.call(normalizedBody, 'latitude');
+    const lngProvided = Object.prototype.hasOwnProperty.call(normalizedBody, 'longitude');
+    if (latProvided || lngProvided) {
+      const latitude = latProvided ? normalizedBody.latitude : sanitizeCoordinate(event.latitude);
+      const longitude = lngProvided ? normalizedBody.longitude : sanitizeCoordinate(event.longitude);
+      const err = validateCoordinates(latitude, longitude);
+      if (err) return res.status(400).json({ error: err });
+    }
+
     for (const key of allowed) {
-      if (req.body[key] !== undefined) {
+      if (normalizedBody[key] !== undefined) {
         fields.push(`${key} = $${idx++}`);
-        values.push(req.body[key]);
+        values.push(normalizedBody[key]);
       }
     }
 
@@ -330,6 +498,8 @@ router.post('/', verifyUserToken, async (req, res) => {
       title,
       description,
       location,
+      latitude,
+      longitude,
       beach_name,
       event_date,
       start_time,
@@ -343,12 +513,21 @@ router.post('/', verifyUserToken, async (req, res) => {
       });
     }
 
+    const parsedLatitude = sanitizeCoordinate(latitude);
+    const parsedLongitude = sanitizeCoordinate(longitude);
+    const coordinateError = validateCoordinates(parsedLatitude, parsedLongitude);
+    if (coordinateError) {
+      return res.status(400).json({ message: coordinateError });
+    }
+
     const createdEvent = await query(
       `
         INSERT INTO events (
           title,
           description,
           location,
+          latitude,
+          longitude,
           beach_name,
           event_date,
           start_time,
@@ -356,13 +535,15 @@ router.post('/', verifyUserToken, async (req, res) => {
           max_volunteers,
           created_by
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 100), $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, 100), $11)
         RETURNING *
       `,
       [
         title,
         description || null,
         location,
+        parsedLatitude,
+        parsedLongitude,
         beach_name,
         event_date,
         start_time,
