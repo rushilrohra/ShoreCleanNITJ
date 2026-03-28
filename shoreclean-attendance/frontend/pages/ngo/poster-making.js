@@ -105,9 +105,7 @@ export default function PosterMakingPage() {
                 >
                   {genLoading ? '🤖 Generating AI Assets...' : result ? '✨ Regenerate AI Assets' : '🤖 Generate AI Poster & Captions'}
                 </button>
-                <p className="text-xs text-muted mt-2 text-center">
-                  This uses Stability AI for images and Google Gemini for social captions.
-                </p>
+                
               </div>
 
               {error && (
