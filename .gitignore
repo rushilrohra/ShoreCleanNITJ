@@ -1,0 +1,8 @@
+shoreclean-attendance/frontend/node_modules
+shoreclean-attendance/backend/node_modules
+shoreclean-attendance/frontend/.env.local
+shoreclean-attendance/backend/.env.local
+shoreclean-attendance/frontend/.env
+shoreclean-attendance/backend/.env
+shoreclean-attendance/frontend/.next
+shoreclean-attendance/backend/.next
