@@ -119,6 +119,7 @@ export default function Navbar() {
 
           <div className="nav-center">
             <Link href="/events" style={navLinkStyle('/events')}>Events</Link>
+            <Link href="/waste-scanner" style={navLinkStyle('/waste-scanner')}>Waste Scanner</Link>
 
             {user && user.role === 'volunteer' && (
               <Link href="/dashboard" style={navLinkStyle('/dashboard')}>My Dashboard</Link>
@@ -185,6 +186,7 @@ export default function Navbar() {
       {mobileOpen && (
         <div className="mobile-menu">
           <Link href="/events" className="mobile-link" onClick={closeMobile}>Events</Link>
+          <Link href="/waste-scanner" className="mobile-link" onClick={closeMobile}>Waste Scanner</Link>
 
           {user && user.role === 'volunteer' && (
             <Link href="/dashboard" className="mobile-link" onClick={closeMobile}>My Dashboard</Link>
