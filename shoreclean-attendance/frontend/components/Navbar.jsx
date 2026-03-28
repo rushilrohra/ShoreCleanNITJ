@@ -94,7 +94,9 @@ export default function Navbar() {
     { label: 'Home', icon: '🏠', href: '/' },
     { label: 'Browse Events', icon: '🌊', href: '/events' },
     { label: 'My Dashboard', icon: '📋', href: '/dashboard' },
-    ,
+    { label: 'Profile', icon: '👤', href: '/profile' },
+    { label: 'Leaderboard', icon: '🏆', href: '/leaderboard' },
+    { label: 'Waste Scanner', icon: '♻️', href: '/waste-scanner' },
   ];
 
   // Organizer Navigation Items
@@ -103,6 +105,8 @@ export default function Navbar() {
     { label: 'Dashboard', icon: '📊', href: '/ngo/dashboard' },
     { label: 'Check-In Scanner', icon: '✅', href: '/volunteer/scanner' },
     { label: 'Browse Events', icon: '🌊', href: '/events' },
+    { label: 'Profile', icon: '👤', href: '/profile' },
+    { label: 'Leaderboard', icon: '🏆', href: '/leaderboard' },
     { label: 'Waste Scanner', icon: '♻️', href: '/waste-scanner' }
   ];
 

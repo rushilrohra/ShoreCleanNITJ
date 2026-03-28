@@ -236,6 +236,7 @@ router.post('/', verifyVolunteerToken, async (req, res) => {
       return res.status(200).json({
         success: true,
         event_id: registration.event_id,
+        registration_id: registration.id,
         event_title: registration.event_title,
         volunteer_name: registration.volunteer_name,
         message: selectedEventMismatch
@@ -313,6 +314,7 @@ router.post('/', verifyVolunteerToken, async (req, res) => {
     return res.status(200).json({
       success: true,
       event_id: registration.event_id,
+      registration_id: registration.id,
       event_title: registration.event_title,
       volunteer_name: registration.volunteer_name,
       message: selectedEventMismatch
@@ -324,6 +326,85 @@ router.post('/', verifyVolunteerToken, async (req, res) => {
   } catch (error) {
     console.error("POST /scan Error:", error);
     return res.status(500).json({ message: 'Internal server error', error: error.message });
+  }
+});
+
+router.post('/impact-log', verifyVolunteerToken, async (req, res) => {
+  try {
+    const {
+      registration_id,
+      estimated_weight_kg,
+      waste_type,
+      notes,
+      photo_url,
+    } = req.body || {};
+
+    if (!registration_id) {
+      return res.status(400).json({ message: 'registration_id is required' });
+    }
+
+    const parsedWeight = Number(estimated_weight_kg);
+    if (!Number.isFinite(parsedWeight) || parsedWeight <= 0) {
+      return res.status(400).json({ message: 'estimated_weight_kg must be a positive number' });
+    }
+
+    const regResult = await query(
+      `
+        SELECT r.id, r.user_id, r.event_id, r.status
+        FROM event_registrations r
+        WHERE r.id = $1
+        LIMIT 1
+      `,
+      [registration_id]
+    );
+
+    if (regResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    const reg = regResult.rows[0];
+    if (!['ACTIVE', 'DONE'].includes(reg.status)) {
+      return res.status(409).json({
+        message: 'Impact can only be logged after check-in or check-out',
+      });
+    }
+
+    const insertResult = await query(
+      `
+        INSERT INTO waste_logs (
+          volunteer_id,
+          event_id,
+          photo_url,
+          waste_type,
+          estimated_weight_kg,
+          ai_confidence,
+          ai_classification,
+          verified,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, NOW(), NOW())
+        RETURNING id, volunteer_id, event_id, waste_type, estimated_weight_kg, created_at
+      `,
+      [
+        reg.user_id,
+        reg.event_id,
+        String(photo_url || 'manual://scanner-impact-log'),
+        String(waste_type || 'Mixed Waste').trim().slice(0, 100) || 'Mixed Waste',
+        parsedWeight.toFixed(2),
+        1.0,
+        String(notes || 'Manual scanner impact log').trim().slice(0, 500) || 'Manual scanner impact log',
+      ]
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'Impact logged successfully',
+      impact: insertResult.rows[0],
+    });
+  } catch (error) {
+    console.error('POST /scan/impact-log Error:', error);
+    return res.status(500).json({ message: 'Failed to log impact', error: error.message });
   }
 });
 

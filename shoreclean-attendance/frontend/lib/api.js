@@ -61,7 +61,13 @@ export const scanAPI = {
   reject: (reg_id) => api.post('/api/scan/reject', { reg_id }),
   scan: (qr_token, scan_type, event_id) =>
     api.post('/api/scan', { qr_token, scan_type, event_id }),
+  logImpact: (payload) => api.post('/api/scan/impact-log', payload),
   getEventStatus: (event_id) => api.get(`/api/scan/event/${event_id}/status`),
+};
+
+export const profileAPI = {
+  me: () => api.get('/api/profile/me'),
+  leaderboard: () => api.get('/api/profile/leaderboard'),
 };
 
 export const announcementsAPI = {

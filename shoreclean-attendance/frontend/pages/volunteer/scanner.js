@@ -57,8 +57,23 @@ export default function VolunteerScannerPage() {
 
   const fetchEvents = async (role) => {
     try {
-      const res = role === 'admin' ? await eventsAPI.getAll() : await eventsAPI.getMyEvents();
-      setEvents(res.data || []);
+      if (role === 'admin') {
+        const res = await eventsAPI.getAll();
+        setEvents(res.data || []);
+        return;
+      }
+
+      const mine = await eventsAPI.getMyEvents();
+      const myRows = mine.data || [];
+      if (Array.isArray(myRows) && myRows.length > 0) {
+        setEvents(myRows);
+        return;
+      }
+
+      // Fallback for shared operations: if organizer has no owned events,
+      // still allow scanning from the global event list.
+      const all = await eventsAPI.getAll();
+      setEvents(all.data || []);
     } catch {
       setEvents([]);
     }
@@ -254,7 +269,13 @@ export default function VolunteerScannerPage() {
                   eventId={selectedEventId}
                   onScanResult={(result) => {
                     setScanLog((prev) => [{ ...result, timestamp: new Date() }, ...prev].slice(0, 20));
-                    if (result.success) fetchAttendance();
+                    if (result.success) {
+                      if (result.event_id && String(result.event_id) !== String(selectedEventId)) {
+                        setSelectedEventId(String(result.event_id));
+                      } else {
+                        fetchAttendance();
+                      }
+                    }
                   }}
                 />
               </div>

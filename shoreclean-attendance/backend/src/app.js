@@ -9,6 +9,7 @@ const eventsRoutes = require('./routes/events');
 const registrationsRoutes = require('./routes/registrations');
 const scanRoutes = require('./routes/scan');
 const announcementsRoutes = require('./routes/announcements');
+const profileRoutes = require('./routes/profile');
 
 const app = express();
 
@@ -42,6 +43,7 @@ app.use('/api/events', eventsRoutes);
 app.use('/api/registrations', registrationsRoutes);
 app.use('/api/scan', scanRoutes);
 app.use('/api/announcements', announcementsRoutes);
+app.use('/api/profile', profileRoutes);
 
 app.use((req, res) => {
   return res.status(404).json({ message: 'Route not found' });

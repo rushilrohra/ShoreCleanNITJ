@@ -188,6 +188,16 @@ export default function VolunteerScanner(props) {
   const [selectedImageName, setSelectedImageName] = useState('');
   const [imageScanError, setImageScanError] = useState('');
   const [liveHint, setLiveHint] = useState('');
+  const [showImpactForm, setShowImpactForm] = useState(false);
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [impactError, setImpactError] = useState('');
+  const [impactForm, setImpactForm] = useState({
+    registration_id: '',
+    volunteer_name: '',
+    estimated_weight_kg: '',
+    waste_type: 'Mixed Waste',
+    notes: '',
+  });
 
   const scannerRef = useRef(null);
   const isProcessingRef = useRef(false);
@@ -300,6 +310,18 @@ export default function VolunteerScanner(props) {
           setAwaitingNextScan(true);
           onScanResultRef.current?.({ success: true, ...data });
 
+          if (data?.registration_id) {
+            setImpactForm({
+              registration_id: String(data.registration_id),
+              volunteer_name: String(data.volunteer_name || ''),
+              estimated_weight_kg: '',
+              waste_type: 'Mixed Waste',
+              notes: '',
+            });
+            setImpactError('');
+            setShowImpactForm(true);
+          }
+
           if (clearResultTimerRef.current) {
             clearTimeout(clearResultTimerRef.current);
           }
@@ -407,6 +429,8 @@ export default function VolunteerScanner(props) {
   const handleNextScan = () => {
     setLastResult(null);
     setAwaitingNextScan(false);
+    setShowImpactForm(false);
+    setImpactError('');
     try {
       scannerRef.current?.resume();
       debugLog('scanner resumed for next volunteer');
@@ -774,6 +798,51 @@ export default function VolunteerScanner(props) {
     }
   };
 
+  const handleImpactSubmit = async () => {
+    if (!impactForm.registration_id) {
+      setImpactError('Missing registration reference for this checkout.');
+      return;
+    }
+
+    const weight = Number(impactForm.estimated_weight_kg);
+    if (!Number.isFinite(weight) || weight <= 0) {
+      setImpactError('Enter a valid collected waste amount in kg.');
+      return;
+    }
+
+    setImpactLoading(true);
+    setImpactError('');
+    try {
+      await scanAPI.logImpact({
+        registration_id: impactForm.registration_id,
+        estimated_weight_kg: Number(weight.toFixed(2)),
+        waste_type: impactForm.waste_type,
+        notes: impactForm.notes,
+      });
+
+      setShowImpactForm(false);
+      setImpactForm({
+        registration_id: '',
+        volunteer_name: '',
+        estimated_weight_kg: '',
+        waste_type: 'Mixed Waste',
+        notes: '',
+      });
+
+      setLastResult((prev) => {
+        if (!prev || !prev.success) return prev;
+        return {
+          ...prev,
+          message: `${prev.message} • Impact logged`,
+        };
+      });
+    } catch (err) {
+      setImpactError(err?.response?.data?.message || 'Failed to log impact details.');
+    } finally {
+      setImpactLoading(false);
+    }
+  };
+
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }} key={scannerKey}>
       <div
@@ -1037,6 +1106,104 @@ export default function VolunteerScanner(props) {
           onReject={handleReject}
           onClose={handleVerifyClose}
         />
+      )}
+
+      {showImpactForm && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            zIndex: 2100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 'var(--sp-4)',
+          }}
+        >
+          <div className="card" style={{ width: 'min(520px, 100%)' }}>
+            <div className="font-display" style={{ fontSize: 20, fontWeight: 700, marginBottom: 'var(--sp-2)' }}>
+              Add Collected Waste
+            </div>
+            <div className="text-sm text-muted" style={{ marginBottom: 'var(--sp-4)' }}>
+              {impactForm.volunteer_name
+                ? `${impactForm.volunteer_name} checked out successfully. Enter impact details to update green points.`
+                : 'Checkout successful. Enter impact details to update green points.'}
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Collected Waste (kg)</label>
+              <input
+                type="number"
+                min="0.1"
+                step="0.1"
+                className="form-input"
+                value={impactForm.estimated_weight_kg}
+                onChange={(e) =>
+                  setImpactForm((prev) => ({ ...prev, estimated_weight_kg: e.target.value }))
+                }
+                placeholder="e.g. 3.5"
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Waste Type</label>
+              <select
+                className="form-input"
+                value={impactForm.waste_type}
+                onChange={(e) =>
+                  setImpactForm((prev) => ({ ...prev, waste_type: e.target.value }))
+                }
+              >
+                <option>Mixed Waste</option>
+                <option>Plastic</option>
+                <option>Glass</option>
+                <option>Metal</option>
+                <option>Organic</option>
+                <option>E-waste</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Notes (optional)</label>
+              <textarea
+                className="form-input"
+                rows={3}
+                value={impactForm.notes}
+                onChange={(e) => setImpactForm((prev) => ({ ...prev, notes: e.target.value }))}
+                placeholder="Any quick context about what was collected"
+              />
+            </div>
+
+            {impactError ? (
+              <div className="alert alert-error" style={{ marginBottom: 'var(--sp-3)' }}>
+                {impactError}
+              </div>
+            ) : null}
+
+            <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={impactLoading}
+                onClick={() => {
+                  setShowImpactForm(false);
+                  setImpactError('');
+                }}
+              >
+                Skip
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={impactLoading}
+                onClick={handleImpactSubmit}
+              >
+                {impactLoading ? 'Saving...' : 'Save Impact'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {awaitingNextScan && !verifyData && (
