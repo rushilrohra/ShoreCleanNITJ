@@ -52,9 +52,13 @@ export const eventsAPI = {
 export const registrationsAPI = {
   register: (event_id) => api.post('/api/registrations', { event_id }),
   getMy: () => api.get('/api/registrations/my'),
+  getPassData: (registrationId) => api.get(`/api/registrations/${registrationId}/pass`),
+  cancel: (id) => api.post(`/api/registrations/${id}/cancel`),
 };
 
 export const scanAPI = {
+  verify: (qr_token) => api.post('/api/scan/verify', { qr_token }),
+  reject: (reg_id) => api.post('/api/scan/reject', { reg_id }),
   scan: (qr_token, scan_type, event_id) =>
     api.post('/api/scan', { qr_token, scan_type, event_id }),
   getEventStatus: (event_id) => api.get(`/api/scan/event/${event_id}/status`),

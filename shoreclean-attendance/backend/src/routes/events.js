@@ -436,7 +436,7 @@ router.patch('/:id/registrations/:reg_id/status', verifyUserToken, async (req, r
     }
 
     const { status } = req.body;
-    const allowedStatuses = ['PENDING', 'ACTIVE', 'DONE', 'ABSENT'];
+    const allowedStatuses = ['PENDING', 'ACTIVE', 'DONE', 'ABSENT', 'REJECTED', 'CANCELLED'];
     if (!allowedStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }

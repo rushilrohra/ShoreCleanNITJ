@@ -35,13 +35,23 @@ CREATE TABLE event_registrations (
   user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   event_id       UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   qr_token       TEXT UNIQUE NOT NULL,
-  status         TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACTIVE', 'DONE', 'ABSENT')),
+  status         TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACTIVE', 'DONE', 'ABSENT', 'REJECTED', 'CANCELLED')),
   entry_time     TIMESTAMPTZ,
   exit_time      TIMESTAMPTZ,
   duration_mins  INTEGER,
   registered_at  TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, event_id)
 );
+
+ALTER TABLE event_registrations ADD COLUMN IF NOT EXISTS photo_url TEXT;
+
+-- Migration: Add REJECTED and CANCELLED statuses
+ALTER TABLE event_registrations
+  DROP CONSTRAINT IF EXISTS event_registrations_status_check;
+
+ALTER TABLE event_registrations
+  ADD CONSTRAINT event_registrations_status_check
+  CHECK (status IN ('PENDING','ACTIVE','DONE','ABSENT','REJECTED','CANCELLED'));
 
 CREATE TABLE scan_logs (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import jsQR from 'jsqr';
 import { scanAPI } from '../lib/api';
 import FloatingInfo from './FloatingInfo';
+import VerificationOverlay from './VerificationOverlay';
 
 const REAR_CAMERA_LABEL_REGEX = /(back|rear|environment)/i;
 const QR_DEBUG = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_QR_DEBUG === 'true';
@@ -178,6 +179,8 @@ export default function VolunteerScanner(props) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastResult, setLastResult] = useState(null);
   const [scanCount, setScanCount] = useState(0);
+  const [verifyData, setVerifyData] = useState(null);
+  const [awaitingNextScan, setAwaitingNextScan] = useState(false);
   const [cameraError, setCameraError] = useState(null);
   const [scannerKey, setScannerKey] = useState(0);
   const [selectedImageFile, setSelectedImageFile] = useState(null);
@@ -224,6 +227,7 @@ export default function VolunteerScanner(props) {
       setLiveHint('');
 
       if (isProcessingRef.current) return;
+      if (awaitingNextScan) return;
       isProcessingRef.current = true;
       setIsProcessing(true);
       const scanType = activeScanTypeRef.current;
@@ -243,28 +247,64 @@ export default function VolunteerScanner(props) {
       }
 
       try {
-        const response = await scanAPI.scan(normalizedQr, scanType, selectedEventId);
-        const data = response.data;
-        debugLog('scan API success', data);
+        if (scanType === 'checkin') {
+          // CHECKIN — two-stage: verify first, then organizer approves/rejects.
+          try {
+            const response = await scanAPI.verify(normalizedQr);
+            setVerifyData(response.data);
+          } catch (verifyErr) {
+            // Resilience path: if verify route is unavailable on an older backend,
+            // fallback to legacy direct check-in to avoid blocking organizers.
+            if (verifyErr?.response?.status === 404) {
+              debugWarn('verify route unavailable, falling back to direct check-in');
+              const response = await scanAPI.scan(normalizedQr, 'checkin', selectedEventId);
+              const data = response.data;
+              setLastResult({ success: true, ...data });
+              setScanCount((prev) => prev + 1);
+              setAwaitingNextScan(true);
+              onScanResultRef.current?.({ success: true, ...data });
 
-        setLastResult({ success: true, ...data });
-        setScanCount((prev) => prev + 1);
-        onScanResultRef.current?.({ success: true, ...data });
+              if (clearResultTimerRef.current) {
+                clearTimeout(clearResultTimerRef.current);
+              }
+
+              clearResultTimerRef.current = setTimeout(() => {
+                setLastResult(null);
+              }, 3000);
+            } else {
+              throw verifyErr;
+            }
+          }
+        } else {
+          // CHECKOUT — single-stage scan.
+          const response = await scanAPI.scan(normalizedQr, 'checkout', selectedEventId);
+          const data = response.data;
+          debugLog('scan API success', data);
+
+          setLastResult({ success: true, ...data });
+          setScanCount((prev) => prev + 1);
+          setAwaitingNextScan(true);
+          onScanResultRef.current?.({ success: true, ...data });
+
+          if (clearResultTimerRef.current) {
+            clearTimeout(clearResultTimerRef.current);
+          }
+
+          clearResultTimerRef.current = setTimeout(() => {
+            setLastResult(null);
+          }, 3000);
+        }
       } catch (err) {
-        const message =
-          err.response?.data?.message ||
-          err.response?.data?.error ||
-          'Scan failed. Please try again.';
+        const message = err.response?.data?.error || 'Scan failed. Please try again.';
+        const status = err.response?.data?.status;
         debugWarn('scan API failed', {
           message,
+          status,
           status: err.response?.status,
           response: err.response?.data,
         });
-        setLastResult({ success: false, message });
+        setLastResult({ success: false, message, status });
         onScanResultRef.current?.({ success: false, message });
-      } finally {
-        setIsProcessing(false);
-        isProcessingRef.current = false;
 
         if (clearResultTimerRef.current) {
           clearTimeout(clearResultTimerRef.current);
@@ -280,10 +320,80 @@ export default function VolunteerScanner(props) {
             // resume may fail if scanner is already stopped during unmount/reload
           }
         }, 3000);
+      } finally {
+        setIsProcessing(false);
+        isProcessingRef.current = false;
       }
     },
-    []
+    [awaitingNextScan]
   );
+
+  const handleApprove = async () => {
+    if (!verifyData?.qr_token) return;
+
+    try {
+      const res = await scanAPI.scan(verifyData.qr_token, 'checkin', eventIdRef.current);
+      setLastResult({ success: true, ...res.data });
+      setScanCount((prev) => prev + 1);
+      setAwaitingNextScan(true);
+      onScanResultRef.current?.({ success: true, ...res.data });
+    } catch (err) {
+      setLastResult({ success: false, message: err.response?.data?.error || 'Check-in failed' });
+    } finally {
+      setVerifyData(null);
+      if (clearResultTimerRef.current) {
+        clearTimeout(clearResultTimerRef.current);
+      }
+      clearResultTimerRef.current = setTimeout(() => {
+        setLastResult(null);
+      }, 3000);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!verifyData?.reg_id) return;
+
+    try {
+      await scanAPI.reject(verifyData.reg_id);
+      setLastResult({
+        success: false,
+        message: `${verifyData.volunteer_name} — Entry rejected`,
+        isRejection: true,
+      });
+      setAwaitingNextScan(true);
+      onScanResultRef.current?.({ success: false, message: 'Entry rejected' });
+    } catch {
+      setLastResult({ success: false, message: 'Rejection failed. Try again.' });
+    } finally {
+      setVerifyData(null);
+      if (clearResultTimerRef.current) {
+        clearTimeout(clearResultTimerRef.current);
+      }
+      clearResultTimerRef.current = setTimeout(() => {
+        setLastResult(null);
+      }, 3000);
+    }
+  };
+
+  const handleVerifyClose = () => {
+    setVerifyData(null);
+    try {
+      scannerRef.current?.resume();
+    } catch {
+      debugWarn('scanner resume skipped after verify close');
+    }
+  };
+
+  const handleNextScan = () => {
+    setLastResult(null);
+    setAwaitingNextScan(false);
+    try {
+      scannerRef.current?.resume();
+      debugLog('scanner resumed for next volunteer');
+    } catch {
+      debugWarn('scanner resume skipped while requesting next volunteer scan');
+    }
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -415,6 +525,7 @@ export default function VolunteerScanner(props) {
         }
 
         setIsScanning(true);
+        setAwaitingNextScan(false);
         lastLiveDecodeAtRef.current = Date.now();
         liveScanStartAtRef.current = Date.now();
         setLiveHint('');
@@ -735,7 +846,9 @@ export default function VolunteerScanner(props) {
                 }}
               />
               <span className="text-sm text-muted">
-                {isScanning
+                {awaitingNextScan
+                  ? 'Paused after a processed scan — tap "Scan Next Volunteer" to continue'
+                  : isScanning
                   ? 'Camera active — point at volunteer QR code'
                   : 'Starting camera…'}
               </span>
@@ -815,8 +928,16 @@ export default function VolunteerScanner(props) {
         <div
           style={{
             animation: 'result-in 0.25s ease',
-            background: lastResult.success ? 'var(--green-100)' : 'var(--coral-100)',
-            border: lastResult.success ? '1px solid #86efac' : '1px solid #fca5a5',
+            background: lastResult.success
+              ? 'var(--green-100)'
+              : lastResult.isRejection
+                ? 'rgba(196,145,63,0.15)'
+                : 'var(--coral-100)',
+            border: lastResult.success
+              ? '1px solid #86efac'
+              : lastResult.isRejection
+                ? '1px solid var(--sand-300)'
+                : '1px solid #fca5a5',
             borderRadius: 'var(--r-lg)',
             padding: 'var(--sp-5)',
             margin: '0 var(--sp-4) var(--sp-4)',
@@ -830,7 +951,11 @@ export default function VolunteerScanner(props) {
               width: 52,
               height: 52,
               borderRadius: '50%',
-              background: lastResult.success ? 'var(--green-500)' : 'var(--coral-500)',
+              background: lastResult.success
+                ? 'var(--green-500)'
+                : lastResult.isRejection
+                  ? 'var(--sand-400)'
+                  : 'var(--coral-500)',
               color: 'white',
               fontSize: 24,
               display: 'flex',
@@ -863,14 +988,46 @@ export default function VolunteerScanner(props) {
             ) : (
               <>
                 <div className="font-bold" style={{ fontSize: 16 }}>
-                  Scan Error
+                  {lastResult.isRejection ? 'Entry Rejected' : 'Scan Error'}
                 </div>
-                <div className="text-sm" style={{ color: 'var(--coral-500)', marginTop: 2 }}>
+                <div
+                  className="text-sm"
+                  style={{
+                    color: lastResult.isRejection ? 'var(--sand-300)' : 'var(--coral-500)',
+                    marginTop: 2,
+                  }}
+                >
                   {lastResult.message}
                 </div>
+                {lastResult.isRejection ? (
+                  <div className="text-sm" style={{ color: 'var(--sand-300)', marginTop: 4 }}>
+                    Status updated. Scanner ready.
+                  </div>
+                ) : null}
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {verifyData && (
+        <VerificationOverlay
+          data={verifyData}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onClose={handleVerifyClose}
+        />
+      )}
+
+      {awaitingNextScan && !verifyData && (
+        <div style={{ padding: '0 var(--sp-4) var(--sp-4)' }}>
+          <button
+            type="button"
+            className="btn btn-primary btn-full"
+            onClick={handleNextScan}
+          >
+            Scan Next Volunteer
+          </button>
         </div>
       )}
 

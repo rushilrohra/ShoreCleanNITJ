@@ -37,6 +37,25 @@ async function ensureEventColumns() {
   }
 }
 
+async function ensureRegistrationColumns() {
+  try {
+    await pool.query('ALTER TABLE event_registrations ADD COLUMN IF NOT EXISTS photo_url TEXT');
+  } catch (error) {
+    console.error('Failed to ensure registration columns:', error.message);
+  }
+}
+
+async function ensureRegistrationStatusConstraint() {
+  try {
+    await pool.query('ALTER TABLE event_registrations DROP CONSTRAINT IF EXISTS event_registrations_status_check');
+    await pool.query(
+      "ALTER TABLE event_registrations ADD CONSTRAINT event_registrations_status_check CHECK (status IN ('PENDING','ACTIVE','DONE','ABSENT','REJECTED','CANCELLED'))"
+    );
+  } catch (error) {
+    console.error('Failed to ensure registration status constraint:', error.message);
+  }
+}
+
 async function ensureScanLogForeignKeyCascade() {
   try {
     const fkResult = await pool.query(
@@ -77,6 +96,8 @@ const query = (text, params) => pool.query(text, params);
 testConnection();
 ensureIndexes();
 ensureEventColumns();
+ensureRegistrationColumns();
+ensureRegistrationStatusConstraint();
 ensureScanLogForeignKeyCascade();
 
 module.exports = {
@@ -85,5 +106,7 @@ module.exports = {
   testConnection,
   ensureIndexes,
   ensureEventColumns,
+  ensureRegistrationColumns,
+  ensureRegistrationStatusConstraint,
   ensureScanLogForeignKeyCascade,
 };

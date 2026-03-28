@@ -2,8 +2,9 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
+import CameraCapture from '../../components/CameraCapture';
 import { NavSpacer } from '../../components/Navbar';
-import { eventsAPI, registrationsAPI } from '../../lib/api';
+import api, { eventsAPI, registrationsAPI } from '../../lib/api';
 
 const DynamicEventLocationMap = dynamic(() => import('../../components/EventLocationMap'), {
   ssr: false,
@@ -47,7 +48,9 @@ export default function EventDetailsPage() {
   const [isRegistered, setIsRegistered] = useState(false);
   const [regLoading, setRegLoading] = useState(false);
   const [regSuccess, setRegSuccess] = useState(false);
-  const [regError, setRegError] = useState('');
+  const [regError, setRegError] = useState(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [capturedPhoto, setCapturedPhoto] = useState(null); // File object
   const [user, setUser] = useState(null);
   const [viewerCount, setViewerCount] = useState(0);
 
@@ -99,20 +102,45 @@ export default function EventDetailsPage() {
   const latitude = parseCoordinate(event?.latitude);
   const longitude = parseCoordinate(event?.longitude);
 
-  const handleRegister = async () => {
+  const handleRegisterWithPhoto = async (photoFile) => {
     if (!event?.id) return;
-    setRegLoading(true); setRegError('');
+    setRegLoading(true);
+    setRegError(null);
     try {
-      await registrationsAPI.register(event.id);
-      setRegSuccess(true); setIsRegistered(true);
-      if (typeof window !== 'undefined' && typeof window.showToast === 'function') window.showToast('Registered!', 'success');
-    } catch (err) { setRegError(err.response?.data?.error || 'Registration failed.'); }
-    finally { setRegLoading(false); }
+      // Use FormData instead of JSON — backend now expects multipart
+      const formData = new FormData();
+      formData.append('event_id', event.id);
+      formData.append('photo', photoFile);
+
+      // Call API with FormData — axios handles Content-Type automatically
+      await api.post('/api/registrations', formData);
+      setRegSuccess(true);
+      setIsRegistered(true);
+      if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+        window.showToast('Registered!', 'success');
+      }
+    } catch (err) {
+      setRegError(err.response?.data?.error || 'Registration failed.');
+    } finally {
+      setRegLoading(false);
+    }
+  };
+
+  const handlePhotoCapture = (file) => {
+    setCapturedPhoto(file);
+    setShowCamera(false);
+    handleRegisterWithPhoto(file);
   };
 
   return (
     <>
       <NavSpacer />
+      {showCamera && (
+        <CameraCapture
+          onCapture={handlePhotoCapture}
+          onCancel={() => setShowCamera(false)}
+        />
+      )}
       {loading ? (
         <div className="text-center" style={{ padding: 'var(--sp-16) 0' }}><span className="spinner spinner-lg" /></div>
       ) : !event ? (
@@ -249,6 +277,7 @@ export default function EventDetailsPage() {
                           <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--green-500)', color: 'white', fontSize: 28, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✓</div>
                           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--green-500)', marginTop: 'var(--sp-3)' }}>You&apos;re registered!</h2>
                           <p className="text-muted">Your QR code is ready.</p>
+                          {capturedPhoto && <p className="text-sm text-muted">Photo captured and verified.</p>}
                           <Link href="/dashboard" className="btn btn-primary btn-full" style={{ marginTop: 'var(--sp-4)' }}>Go to My Dashboard →</Link>
                         </div>
                       ) : full ? (
@@ -272,9 +301,12 @@ export default function EventDetailsPage() {
                               </div>
                             ))}
                           </div>
-                          <button className="btn btn-primary btn-full btn-lg" type="button" onClick={handleRegister} disabled={regLoading}>
-                            {regLoading ? (<><span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Registering…</>) : 'Register Now →'}
+                          <button className="btn btn-primary btn-full btn-lg" type="button" onClick={() => setShowCamera(true)} disabled={regLoading}>
+                            {regLoading ? (<><span className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} /> Registering…</>) : '📷 Register & Take Photo →'}
                           </button>
+                          <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 8, textAlign: 'center' }}>
+                            A photo is required to prevent fake attendance
+                          </p>
                           {regError && <div className="alert alert-error" style={{ marginTop: 'var(--sp-3)' }}>{regError}</div>}
                         </>
                       )}

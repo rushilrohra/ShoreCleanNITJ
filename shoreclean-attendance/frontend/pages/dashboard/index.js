@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import * as QRCode from 'qrcode';
 import { QRCodeSVG } from 'qrcode.react';
 import { NavSpacer } from '../../components/Navbar';
+import { generateVolunteerPass } from '../../lib/generatePass';
 import { registrationsAPI } from '../../lib/api';
 
 const formatDate = (d) =>
@@ -21,9 +21,14 @@ const formatTime = (t) => {
   return date.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
 };
 
-const slugify = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
-
-const STRIPE_COLORS = { PENDING: 'var(--ocean-500)', ACTIVE: 'var(--green-500)', DONE: 'var(--green-500)', ABSENT: 'var(--coral-500)' };
+const STRIPE_COLORS = {
+  PENDING: 'var(--ocean-500)',
+  ACTIVE: 'var(--green-500)',
+  DONE: 'var(--gray-300)',
+  ABSENT: 'var(--coral-500)',
+  REJECTED: 'var(--coral-500)',
+  CANCELLED: 'var(--sand-500)',
+};
 
 function useCounterAnimation(ref) {
   const hasAnimated = useRef(false);
@@ -56,6 +61,9 @@ export default function DashboardPage() {
   const [registrations, setRegistrations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('upcoming');
+  const [pdfLoading, setPdfLoading] = useState({});
+  const [cancelModal, setCancelModal] = useState(null);
+  const [cancelLoading, setCancelLoading] = useState(false);
   const statsRef = useRef(null);
   useCounterAnimation(statsRef);
 
@@ -84,16 +92,38 @@ export default function DashboardPage() {
 
   const tabData = activeTab === 'upcoming' ? upcoming : activeTab === 'completed' ? completed : registrations;
 
-  const downloadQR = (token, reg) => {
-    const canvas = document.createElement('canvas');
-    QRCode.toCanvas(canvas, token, { width: 720, margin: 3, errorCorrectionLevel: 'L' }, (err) => {
-      if (!err) {
-        const a = document.createElement('a');
-        a.href = canvas.toDataURL('image/png');
-        a.download = `shoreclean-${slugify(reg?.title)}-${slugify(reg?.beach_name)}-${String(reg?.event_date || '').slice(0, 10)}.png`;
-        a.click();
-      }
-    });
+  const handleDownloadPdf = async (registration) => {
+    setPdfLoading((prev) => ({ ...prev, [registration.id]: true }));
+    try {
+      // Fetch pass payload from DB-backed endpoint for authoritative values
+      const passRes = await registrationsAPI.getPassData(registration.id);
+      const passRegistration = passRes.data?.registration || registration;
+      const passUser = passRes.data?.user || JSON.parse(localStorage.getItem('shoreclean_user') || '{}');
+      await generateVolunteerPass(passRegistration, passUser);
+    } catch (err) {
+      console.error('PDF generation failed:', err);
+      window.showToast?.('PDF generation failed. Try again.', 'error');
+    } finally {
+      setPdfLoading((prev) => ({ ...prev, [registration.id]: false }));
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!cancelModal?.id) return;
+    setCancelLoading(true);
+    try {
+      await registrationsAPI.cancel(cancelModal.id);
+      // Update local state — change status to CANCELLED without refetch
+      setRegistrations((prev) =>
+        prev.map((r) => (r.id === cancelModal.id ? { ...r, status: 'CANCELLED' } : r))
+      );
+      setCancelModal(null);
+      window.showToast?.('Registration cancelled successfully', 'success');
+    } catch (err) {
+      window.showToast?.(err.response?.data?.error || 'Cancellation failed', 'error');
+    } finally {
+      setCancelLoading(false);
+    }
   };
 
   return (
@@ -193,7 +223,11 @@ export default function DashboardPage() {
 
                     {/* Status info */}
                     <div style={{ flex: 1 }}>
-                      <span className={`badge ${r.status === 'DONE' ? 'badge-green' : r.status === 'ABSENT' ? 'badge-red' : 'badge-blue'}`}>{r.status}</span>
+                      {r.status === 'CANCELLED' ? (
+                        <span className="badge" style={{ background: 'var(--sand-100)', color: 'var(--sand-700)' }}>Cancelled by you</span>
+                      ) : (
+                        <span className={`badge ${r.status === 'DONE' ? 'badge-green' : (r.status === 'ABSENT' || r.status === 'REJECTED') ? 'badge-red' : 'badge-blue'}`}>{r.status}</span>
+                      )}
                       {r.status === 'DONE' && (
                         <div style={{ marginTop: 'var(--sp-2)', fontSize: 14 }}>
                           <div>⏱ {r.duration_mins || 0} minutes</div>
@@ -205,15 +239,61 @@ export default function DashboardPage() {
                       {r.status === 'ABSENT' && (
                         <div style={{ marginTop: 'var(--sp-2)', fontSize: 13, color: 'var(--coral-500)' }}>Marked absent by organizer</div>
                       )}
+
+                      {r.photo_url && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 'var(--sp-3)', padding: 'var(--sp-3)', background: 'var(--ocean-100)', borderRadius: 'var(--r-md)' }}>
+                          <img
+                            src={r.photo_url}
+                            alt="Your registration photo"
+                            style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid var(--ocean-300)' }}
+                          />
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ocean-700)' }}>Photo verified ✓</div>
+                            <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Used for identity check at the event</div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Download button */}
+                  {/* Download pass button */}
                   {(r.status === 'PENDING' || r.status === 'ACTIVE') && r.qr_token && (
-                    <button type="button" className="btn btn-secondary btn-sm btn-full" style={{ marginTop: 'var(--sp-3)' }}
-                      onClick={() => downloadQR(r.qr_token, r)}>
-                      Download QR
-                    </button>
+                    <>
+                      <button
+                        className="btn btn-primary btn-full btn-sm"
+                        onClick={() => handleDownloadPdf(r)}
+                        disabled={pdfLoading[r.id]}
+                        style={{ marginTop: 'var(--sp-3)' }}
+                      >
+                        {pdfLoading[r.id]
+                          ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Generating…</>
+                          : '📄 Download Volunteer Pass'}
+                      </button>
+                      <p style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 6, textAlign: 'center', lineHeight: 1.4 }}>
+                        Show this PDF at the event entrance. The organizer will verify your identity.
+                      </p>
+                      {r.status === 'PENDING' && (
+                        <button
+                          className="btn btn-ghost btn-sm btn-full"
+                          style={{ color: 'var(--coral-500)', marginTop: 'var(--sp-2)', fontSize: 13 }}
+                          onClick={() => setCancelModal({ id: r.id, title: r.title })}
+                        >
+                          Cancel Registration
+                        </button>
+                      )}
+                    </>
+                  )}
+
+                  {r.status === 'CANCELLED' && (
+                    <div style={{ marginTop: 'var(--sp-4)', padding: 'var(--sp-3)', background: 'var(--sand-100)', borderRadius: 'var(--r-md)', fontSize: 13, color: 'var(--sand-700)', textAlign: 'center' }}>
+                      You cancelled this registration
+                    </div>
+                  )}
+
+                  {r.status === 'REJECTED' && (
+                    <div style={{ marginTop: 'var(--sp-4)', padding: 'var(--sp-3)', background: 'var(--coral-100)', borderRadius: 'var(--r-md)', fontSize: 13, color: 'var(--coral-500)', textAlign: 'center' }}>
+                      Entry was rejected by the organizer
+                    </div>
                   )}
                 </div>
               </div>
@@ -221,6 +301,46 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {cancelModal && (
+        <div className="modal-overlay" onClick={() => setCancelModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-header">
+              <h2 className="modal-title">Cancel Registration?</h2>
+              <button className="modal-close" onClick={() => setCancelModal(null)}>✕</button>
+            </div>
+
+            <p style={{ fontSize: 15, color: 'var(--color-text-muted)', lineHeight: 1.6, marginBottom: 'var(--sp-4)' }}>
+              Are you sure you want to cancel your registration for
+              <strong style={{ color: 'var(--color-text)' }}> {cancelModal.title}</strong>?
+              This cannot be undone.
+            </p>
+
+            <div style={{ background: 'var(--coral-100)', border: '1px solid #fca5a5', borderRadius: 'var(--r-md)', padding: 'var(--sp-3)', fontSize: 13, color: 'var(--coral-500)', marginBottom: 'var(--sp-5)' }}>
+              Your spot will be released for another volunteer.
+            </div>
+
+            <div style={{ display: 'flex', gap: 'var(--sp-3)', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-ghost"
+                onClick={() => setCancelModal(null)}
+                disabled={cancelLoading}
+              >
+                Keep Registration
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={handleCancel}
+                disabled={cancelLoading}
+              >
+                {cancelLoading
+                  ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} /> Cancelling…</>
+                  : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style jsx>{`
         @media (max-width: 900px) {
