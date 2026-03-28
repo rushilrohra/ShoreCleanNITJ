@@ -1,0 +1,58 @@
+{
+  "classes": [
+    "Plastic",
+    "Metal",
+    "Glass",
+    "Paper_Cardboard",
+    "Organic_Food",
+    "Ewaste",
+    "Textile_Fabric",
+    "Rubber_Leather",
+    "Hazardous",
+    "Thermocol_Foam",
+    "Nirmalya_Floral",
+    "PoP_Chemical",
+    "Firecracker_Waste",
+    "Thermocol_Pandal",
+    "Kite_Waste",
+    "Holi_Color_Waste"
+  ],
+  "hazard": {
+    "Plastic": "medium",
+    "Metal": "low",
+    "Glass": "medium",
+    "Paper_Cardboard": "low",
+    "Organic_Food": "low",
+    "Ewaste": "high",
+    "Textile_Fabric": "low",
+    "Rubber_Leather": "medium",
+    "Hazardous": "high",
+    "Thermocol_Foam": "medium",
+    "Nirmalya_Floral": "low",
+    "PoP_Chemical": "high",
+    "Firecracker_Waste": "high",
+    "Thermocol_Pandal": "medium",
+    "Kite_Waste": "medium",
+    "Holi_Color_Waste": "high"
+  },
+  "festival_season": {
+    "Nirmalya_Floral": "Aug\u2013Oct (Ganesh Chaturthi, Durga Puja, Chhath Puja)",
+    "PoP_Chemical": "Aug\u2013Oct (Ganesh/Durga/Kali Puja idol immersion)",
+    "Firecracker_Waste": "Oct\u2013Nov (Diwali, Dussehra) + Jan (Lohri) + New Year",
+    "Thermocol_Pandal": "Aug\u2013Oct (Navratri, Durga Puja, Ganesh pandals)",
+    "Kite_Waste": "Jan\u2013Feb (Makar Sankranti, Uttarayan)",
+    "Holi_Color_Waste": "Mar (Holi)"
+  },
+  "model_version": "v3",
+  "img_size": 224,
+  "imagenet_mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "imagenet_std": [
+    0.229,
+    0.224,
+    0.225
+  ]
+}
