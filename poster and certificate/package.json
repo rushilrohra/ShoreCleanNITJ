@@ -1,0 +1,10 @@
+{
+  "name": "shoreclean",
+  "version": "1.0.0",
+  "description": "Gamified Beach Cleanup Platform",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ]
+}

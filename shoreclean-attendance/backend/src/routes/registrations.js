@@ -33,7 +33,7 @@ router.post('/', verifyUserToken, async (req, res) => {
         SELECT
           e.id,
           e.event_date,
-          e.max_volunteers,
+          100 AS max_volunteers,
           COUNT(r.id) AS registered_count
         FROM events e
         LEFT JOIN event_registrations r ON e.id = r.event_id
@@ -68,16 +68,17 @@ router.post('/', verifyUserToken, async (req, res) => {
       return res.status(400).json({ message: 'Event is full' });
     }
 
-    const registrationId = uuidv4();
+    // In the main DB schemas event_registrations uses SERIAL 'id' instead of UUID. 
+    // We omit ID entirely to let SERIAL handle it!
     const qrToken = await createUniqueQrToken();
 
     const createdRegistration = await query(
       `
-        INSERT INTO event_registrations (id, user_id, event_id, qr_token, status)
-        VALUES ($1, $2, $3, $4, 'PENDING')
+        INSERT INTO event_registrations (user_id, event_id, qr_token, status)
+        VALUES ($1, $2, $3, 'PENDING')
         RETURNING id, event_id, qr_token, status
       `,
-      [registrationId, req.user.userId, event_id, qrToken]
+      [req.user.userId, event_id, qrToken]
     );
 
     return res.status(201).json({
@@ -85,7 +86,8 @@ router.post('/', verifyUserToken, async (req, res) => {
       registration: createdRegistration.rows[0],
     });
   } catch (error) {
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("POST /reg Error:", error);
+    return res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 });
 
@@ -93,7 +95,7 @@ router.get('/my', verifyUserToken, async (req, res) => {
   try {
     const registrations = await query(
       `
-        SELECT r.*, e.title, e.beach_name, e.event_date, e.start_time, e.location
+        SELECT r.*, e.title, e.location_name AS beach_name, e.event_date, e.start_time, e.location_name AS location
         FROM event_registrations r
         JOIN events e ON r.event_id = e.id
         WHERE r.user_id = $1
@@ -104,7 +106,8 @@ router.get('/my', verifyUserToken, async (req, res) => {
 
     return res.status(200).json(registrations.rows);
   } catch (error) {
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("GET /my Error:", error);
+    return res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 });
 

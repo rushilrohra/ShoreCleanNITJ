@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import { useEffect, useMemo, useState } from 'react';
 
 import { NavSpacer } from '../../components/Navbar';
-import { eventsAPI } from '../../lib/api';
+import { eventsAPI, announcementsAPI } from '../../lib/api';
 
 const DynamicMapLocationPicker = dynamic(() => import('../../components/MapLocationPicker'), {
   ssr: false,
@@ -116,6 +116,7 @@ export default function NGODashboardPage() {
   const [createGeoLoading, setCreateGeoLoading] = useState(false);
   const [editGeoLoading, setEditGeoLoading] = useState(false);
   const [descriptionLoading, setDescriptionLoading] = useState({ create: false, edit: false });
+  const [posterLoading, setPosterLoading] = useState({});
 
   const [createFieldErrors, setCreateFieldErrors] = useState({});
   const [editForm, setEditForm] = useState(null);
@@ -125,6 +126,33 @@ export default function NGODashboardPage() {
   const toast = (type, message) => {
     if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
       window.showToast(message, type);
+    }
+  };
+
+  const handleGeneratePoster = async (eventId) => {
+    setPosterLoading(prev => ({ ...prev, [eventId]: true }));
+    try {
+      const res = await announcementsAPI.generatePoster(eventId);
+      const data = res.data;
+      toast('success', 'AI Poster & Captions generated! Check your event details.');
+      
+      // Update local state immediately if possible to show captions
+      setMyEvents(prev => prev.map(e => e.id === eventId ? { ...e, poster_url: data.poster_url, social_caption: data.captions } : e));
+      
+      await fetchMyEvents();
+    } catch (error) {
+      toast('error', error?.response?.data?.message || 'Failed to generate AI poster');
+    } finally {
+      setPosterLoading(prev => ({ ...prev, [eventId]: false }));
+    }
+  };
+
+  const handleSendAnnouncement = async (eventId) => {
+    try {
+      await announcementsAPI.sendEmail(eventId);
+      toast('success', 'Announcement emails sent to all volunteers!');
+    } catch (error) {
+      toast('error', error?.response?.data?.message || 'Failed to send emails');
     }
   };
 
@@ -638,6 +666,21 @@ export default function NGODashboardPage() {
                       <button className="btn btn-secondary btn-sm" type="button" onClick={() => openRegistrationsModal(event.id)}>
                         👁 View Registrations
                       </button>
+                      
+                      <button 
+                        className="btn btn-ghost btn-sm" 
+                        type="button" 
+                        onClick={() => router.push(`/ngo/poster-making?eventId=${event.id}`)}
+                      >
+                        {event.poster_url ? '✨ Manage AI Poster' : '🤖 AI Generate Poster'}
+                      </button>
+
+                      {event.poster_url && (
+                        <button className="btn btn-sand btn-sm" type="button" onClick={() => handleSendAnnouncement(event.id)}>
+                          📢 Broadcast Email
+                        </button>
+                      )}
+
                       <button className="btn btn-ghost btn-sm" type="button" onClick={() => openEditModal(event)}>
                         ✏️ Edit Event
                       </button>
@@ -652,6 +695,53 @@ export default function NGODashboardPage() {
                         🗑 Delete
                       </button>
                     </div>
+
+                    {event.poster_url && (
+                      <div style={{ marginTop: 'var(--sp-4)', padding: 'var(--sp-3)', background: 'var(--gray-50)', borderRadius: 'var(--r-md)', border: '1px solid var(--gray-200)' }}>
+                        <div className="text-xs font-bold text-muted mb-2 uppercase tracking-wide">AI Generated Poster</div>
+                        <img src={event.poster_url} alt="Poster" style={{ width: '100%', maxHeight: 240, objectFit: 'cover', borderRadius: 'var(--r-sm)', border: '1px solid var(--gray-200)' }} />
+                        
+                        {event.social_caption && (
+                          <div style={{ marginTop: 'var(--sp-3)' }}>
+                            <div className="text-xs font-bold text-muted mb-3 uppercase tracking-wider">📢 AI Social Content</div>
+                            <div className="grid-2 gap-3">
+                              {/* Standard parsing for JSON, with fallback for string */}
+                              {(() => {
+                                try {
+                                  const caps = typeof event.social_caption === 'string' ? JSON.parse(event.social_caption) : event.social_caption;
+                                  return Object.entries(caps).map(([platform, text]) => (
+                                    <div key={platform} className="card-flat" style={{ background: 'white', padding: 'var(--sp-3)', borderRadius: 'var(--r-md)', border: '1px solid var(--gray-100)' }}>
+                                      <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-bold uppercase" style={{ color: 'var(--ocean-600)' }}>{platform}</span>
+                                        <button 
+                                          className="btn btn-ghost btn-xs" 
+                                          title="Copy"
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(text);
+                                            toast('success', `${platform} caption copied!`);
+                                          }}
+                                        >
+                                          📋
+                                        </button>
+                                      </div>
+                                      <div style={{ fontSize: 13, color: 'var(--color-text)', lineHeight: 1.5, maxHeight: 100, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+                                        {text}
+                                      </div>
+                                    </div>
+                                  ));
+                                } catch (e) {
+                                  return (
+                                    <div className="card-flat" style={{ gridColumn: 'span 2', background: 'white' }}>
+                                      {typeof event.social_caption === 'string' ? event.social_caption : JSON.stringify(event.social_caption)}
+                                    </div>
+                                  );
+                                }
+                              })()}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}

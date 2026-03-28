@@ -1,0 +1,43 @@
+{
+  "name": "shoreclean-backend",
+  "version": "1.0.0",
+  "description": "ShoreClean - Gamified Beach Cleanup Platform Backend",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "db:migrate": "node db/migrations/init.js",
+    "seed": "node db/seeds/seed.js"
+  },
+  "keywords": [
+    "shoreclean",
+    "beach-cleanup",
+    "gamification",
+    "environmental"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.9.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "exif-parser": "^0.1.12",
+    "express": "^4.18.2",
+    "express-validator": "^7.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.2",
+    "nodemailer": "^6.9.7",
+    "cloudinary": "^1.41.3",
+    "pdfkit": "^0.13.0",
+    "pg": "^8.10.0",
+    "qrcode": "^1.5.3",
+    "sharp": "^0.33.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

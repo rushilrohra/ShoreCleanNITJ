@@ -32,8 +32,18 @@ async function ensureEventColumns() {
     await pool.query("ALTER TABLE events ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cancelled', 'completed'))");
     await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION');
     await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION');
+    await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS poster_url TEXT');
+    await pool.query('ALTER TABLE events ADD COLUMN IF NOT EXISTS social_caption TEXT');
   } catch (error) {
     console.error('Failed to ensure event columns:', error.message);
+  }
+}
+
+async function ensureRegistrationColumns() {
+  try {
+    await pool.query('ALTER TABLE event_registrations ADD COLUMN IF NOT EXISTS certificate_url TEXT');
+  } catch (error) {
+    console.error('Failed to ensure registration columns:', error.message);
   }
 }
 
@@ -77,6 +87,7 @@ const query = (text, params) => pool.query(text, params);
 testConnection();
 ensureIndexes();
 ensureEventColumns();
+ensureRegistrationColumns();
 ensureScanLogForeignKeyCascade();
 
 module.exports = {

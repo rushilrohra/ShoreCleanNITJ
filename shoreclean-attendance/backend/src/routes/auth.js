@@ -12,7 +12,7 @@ router.post('/register', async (req, res) => {
   try {
     const { name, email, phone, password } = req.body;
     const incomingRole = req.body.role || 'volunteer';
-    const role = String(incomingRole).toLowerCase();
+    let role = String(incomingRole).toLowerCase();
 
     if (!name || !email || !password) {
       return res.status(400).json({
@@ -20,9 +20,12 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    if (!allowedRoles.includes(role)) {
+    if (role === 'ngo') role = 'organizer'; // Map 'ngo' to DB enum 'organizer'
+
+    // Fix allowed roles array locally since we overwrote the top constant logic contextually
+    if (!['volunteer', 'organizer', 'admin'].includes(role)) {
       return res.status(400).json({
-        message: "Invalid role. Allowed roles: 'volunteer', 'ngo', 'admin'",
+        message: "Invalid role. Allowed roles: 'volunteer', 'organizer', 'admin'",
       });
     }
 
@@ -34,13 +37,17 @@ router.post('/register', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
+    const nameParts = String(name).trim().split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
     const insertedUser = await query(
       `
-        INSERT INTO users (name, email, phone, password_hash, role)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, name, email, role
+        INSERT INTO users (first_name, last_name, email, phone, password_hash, role)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, first_name || ' ' || COALESCE(last_name, '') AS name, email, role
       `,
-      [name, email, phone || null, passwordHash, role]
+      [firstName, lastName, email, phone || null, passwordHash, role]
     );
 
     const user = insertedUser.rows[0];
@@ -57,7 +64,8 @@ router.post('/register', async (req, res) => {
       },
     });
   } catch (error) {
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("Registration Error:", error);
+    return res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 });
 
@@ -72,7 +80,7 @@ router.post('/login', async (req, res) => {
     }
 
     const userResult = await query(
-      'SELECT id, name, email, password_hash, role FROM users WHERE email = $1 LIMIT 1',
+      "SELECT id, first_name || ' ' || COALESCE(last_name, '') AS name, email, password_hash, role FROM users WHERE email = $1 LIMIT 1",
       [email]
     );
 
@@ -100,7 +108,8 @@ router.post('/login', async (req, res) => {
       },
     });
   } catch (error) {
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("Login Error:", error);
+    return res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 });
 
@@ -108,7 +117,7 @@ router.get('/me', verifyUserToken, async (req, res) => {
   try {
     const userResult = await query(
       `
-        SELECT id, name, email, phone, role, created_at
+        SELECT id, first_name || ' ' || COALESCE(last_name, '') AS name, email, phone, role, created_at
         FROM users
         WHERE id = $1
         LIMIT 1
@@ -122,7 +131,8 @@ router.get('/me', verifyUserToken, async (req, res) => {
 
     return res.status(200).json(userResult.rows[0]);
   } catch (error) {
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("GET /me Error:", error);
+    return res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 });
 

@@ -42,7 +42,7 @@ function verifyVolunteerToken(req, res, next) {
     req.user = decoded;
 
     // Scanner access is restricted to NGO/admin users for now.
-    if (req.user.role !== 'ngo' && req.user.role !== 'admin') {
+    if (req.user.role !== 'ngo' && req.user.role !== 'admin' && req.user.role !== 'organizer') {
       return res.status(403).json({ message: 'Volunteer or NGO access required' });
     }
 

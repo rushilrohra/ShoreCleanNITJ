@@ -215,6 +215,18 @@ export default function DashboardPage() {
                       Download QR
                     </button>
                   )}
+
+                  {r.status === 'DONE' && r.certificate_url && (
+                    <a 
+                      href={r.certificate_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="btn btn-primary btn-sm btn-full" 
+                      style={{ marginTop: 'var(--sp-3)', display: 'inline-flex', justifyContent: 'center', alignItems: 'center', textDecoration: 'none' }}
+                    >
+                      🏆 Download Certificate
+                    </a>
+                  )}
                 </div>
               </div>
             ))}

@@ -60,4 +60,9 @@ export const scanAPI = {
   getEventStatus: (event_id) => api.get(`/api/scan/event/${event_id}/status`),
 };
 
+export const announcementsAPI = {
+  generatePoster: (event_id) => api.post('/api/announcements/generate-poster', { event_id }),
+  sendEmail: (event_id) => api.post('/api/announcements/send-email', { event_id }),
+};
+
 export default api;

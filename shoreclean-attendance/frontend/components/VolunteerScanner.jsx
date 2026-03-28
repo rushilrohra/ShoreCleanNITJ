@@ -264,22 +264,23 @@ export default function VolunteerScanner(props) {
         onScanResultRef.current?.({ success: false, message });
       } finally {
         setIsProcessing(false);
-        isProcessingRef.current = false;
-
+        // We keep isProcessingRef.current = true for a 5-second cooldown
+        // to prevent the rapid re-scanning of the same QR code seen in the logs.
+        
         if (clearResultTimerRef.current) {
           clearTimeout(clearResultTimerRef.current);
         }
 
         clearResultTimerRef.current = setTimeout(() => {
           setLastResult(null);
+          isProcessingRef.current = false;
           try {
             scannerInstance?.resume();
-            debugLog('scanner resumed after processing window');
+            debugLog('scanner resumed after 5s cooldown');
           } catch {
-            debugWarn('scanner resume skipped (scanner likely stopped/unmounted)');
-            // resume may fail if scanner is already stopped during unmount/reload
+            debugWarn('scanner resume skipped');
           }
-        }, 3000);
+        }, 5000);
       }
     },
     []
@@ -484,7 +485,7 @@ export default function VolunteerScanner(props) {
 
     const interval = setInterval(async () => {
       if (isProcessingRef.current) return;
-      if (Date.now() - lastLiveDecodeAtRef.current < 2200) return;
+      if (Date.now() - lastLiveDecodeAtRef.current < 5000) return;
 
       try {
         const video = document.querySelector('#qr-reader video');

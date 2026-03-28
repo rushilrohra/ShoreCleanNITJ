@@ -8,21 +8,18 @@ const router = express.Router();
 router.post('/', verifyVolunteerToken, async (req, res) => {
   try {
     // STEP 1 - Validate input
-    const { qr_token, scan_type, event_id: selected_event_id } = req.body;
+    const { qr_token, event_id: selected_event_id } = req.body;
+    let { scan_type } = req.body;
     const normalizedToken = typeof qr_token === 'string' ? qr_token.trim() : '';
 
-    if (!normalizedToken || !scan_type) {
-      return res.status(400).json({ message: 'qr_token and scan_type are required' });
-    }
-
-    if (scan_type !== 'checkin' && scan_type !== 'checkout') {
-      return res.status(400).json({ message: 'scan_type must be checkin or checkout' });
+    if (!normalizedToken) {
+      return res.status(400).json({ message: 'qr_token is required' });
     }
 
     // STEP 2 - Database lookup by qr_token
     const registrationResult = await query(
       `
-        SELECT r.*, u.name as volunteer_name, e.title as event_title, e.event_date
+        SELECT r.*, u.first_name || ' ' || COALESCE(u.last_name, '') as volunteer_name, e.title as event_title, e.event_date
         FROM event_registrations r
         JOIN users u ON r.user_id = u.id
         JOIN events e ON r.event_id = e.id
@@ -36,6 +33,22 @@ router.post('/', verifyVolunteerToken, async (req, res) => {
     }
 
     const registration = registrationResult.rows[0];
+
+    // INTELLIGENT OVERRIDE: Ignore frontend toggle bugs. Force correct scan action based on DB State.
+    if (registration.status === 'DONE') {
+      return res.status(200).json({
+        success: true,
+        already_done: true,
+        volunteer_name: registration.volunteer_name,
+        certificate_url: registration.certificate_url,
+        message: '✓ Impact already recorded & verified'
+      });
+    } else if (registration.status === 'PENDING') {
+      scan_type = 'checkin';
+    } else if (registration.status === 'ACTIVE') {
+      scan_type = 'checkout';
+    } 
+    // If it's DONE, we let it naturally fail below in the state machine so it shows "Already completed"
 
     const selectedEventMismatch =
       Boolean(selected_event_id) && registration.event_id !== selected_event_id;
@@ -104,14 +117,6 @@ router.post('/', verifyVolunteerToken, async (req, res) => {
         [registration.id]
       );
 
-      await query(
-        `
-          INSERT INTO scan_logs (registration_id, scanned_by, scan_type)
-          VALUES ($1, $2, 'checkin')
-        `,
-        [registration.id, req.user.userId]
-      );
-
       return res.status(200).json({
         success: true,
         event_id: registration.event_id,
@@ -152,18 +157,42 @@ router.post('/', verifyVolunteerToken, async (req, res) => {
         UPDATE event_registrations
         SET status = 'DONE', exit_time = NOW(), duration_mins = $2
         WHERE id = $1
-        RETURNING exit_time, duration_mins
+        RETURNING exit_time, duration_mins, user_id, event_id
       `,
       [registration.id, durationMins]
     );
 
-    await query(
+    // --- AUTOMATED IMPACT CERTIFICATION (PHASE 4) ---
+    const { generateCertificate } = require('../services/certificate');
+    const { sendCertificateEmail } = require('../services/email');
+
+    const volunteerInfo = await query(
       `
-        INSERT INTO scan_logs (registration_id, scanned_by, scan_type)
-        VALUES ($1, $2, 'checkout')
+        SELECT u.first_name || ' ' || COALESCE(u.last_name, '') AS name, u.email, e.title AS event_title, e.location_name, e.event_date
+        FROM users u, events e
+        WHERE u.id = $1 AND e.id = $2
       `,
-      [registration.id, req.user.userId]
+      [checkoutUpdate.rows[0].user_id, checkoutUpdate.rows[0].event_id]
     );
+
+    if (volunteerInfo.rows.length > 0) {
+      const details = {
+        registration_id: registration.id,
+        name: volunteerInfo.rows[0].name,
+        email: volunteerInfo.rows[0].email,
+        event_title: volunteerInfo.rows[0].event_title,
+        location_name: volunteerInfo.rows[0].location_name,
+        event_date: volunteerInfo.rows[0].event_date,
+        duration_mins: durationMins,
+      };
+
+      // Generate and Email (fire and forget to not block the scanner response)
+      generateCertificate(details)
+        .then(url => {
+          if (details.email) sendCertificateEmail(details.email, details.name, url);
+        })
+        .catch(err => console.error("Certificate Automation Error:", err));
+    }
 
     return res.status(200).json({
       success: true,
@@ -177,7 +206,8 @@ router.post('/', verifyVolunteerToken, async (req, res) => {
       exit_time: checkoutUpdate.rows[0].exit_time,
     });
   } catch (error) {
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("POST /scan Error:", error);
+    return res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 });
 
@@ -185,7 +215,7 @@ router.get('/event/:event_id/status', verifyVolunteerToken, async (req, res) => 
   try {
     const statusResult = await query(
       `
-        SELECT r.id, r.status, u.name AS volunteer_name, r.entry_time, r.exit_time, r.duration_mins
+        SELECT r.id, r.status, u.first_name || ' ' || COALESCE(u.last_name, '') AS volunteer_name, r.entry_time, r.exit_time, r.duration_mins
         FROM event_registrations r
         JOIN users u ON r.user_id = u.id
         WHERE r.event_id = $1
@@ -204,7 +234,8 @@ router.get('/event/:event_id/status', verifyVolunteerToken, async (req, res) => 
 
     return res.status(200).json({ summary, registrations: rows });
   } catch (error) {
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("GET /event/status Error:", error);
+    return res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 });
 

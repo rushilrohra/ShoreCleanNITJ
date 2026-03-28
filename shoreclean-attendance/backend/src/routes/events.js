@@ -125,7 +125,7 @@ function validateCoordinates(latitude, longitude) {
 
 router.post('/generate-description', verifyUserToken, async (req, res) => {
   try {
-    if (!['ngo', 'admin'].includes(req.user.role)) {
+    if (!['ngo', 'organizer', 'admin'].includes(req.user.role)) {
       return res.status(403).json({ error: 'NGO access required' });
     }
 
@@ -160,7 +160,13 @@ router.get('/', async (req, res) => {
   try {
     const eventsResult = await query(
       `
-        SELECT e.*, COUNT(r.id) as registered_count
+        SELECT
+          e.id, e.title, e.description,
+          e.location_name AS location, e.location_name AS beach_name,
+          e.event_date, e.start_time, e.end_time, e.status, e.organizer_id AS created_by,
+          e.poster_url, e.social_caption,
+          100 AS max_volunteers,
+          COUNT(r.id) as registered_count
         FROM events e
         LEFT JOIN event_registrations r ON e.id = r.event_id
         GROUP BY e.id
@@ -170,19 +176,24 @@ router.get('/', async (req, res) => {
 
     return res.status(200).json(eventsResult.rows);
   } catch (error) {
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("GET /events Error:", error);
+    return res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 });
 
 router.get('/my', verifyUserToken, async (req, res) => {
   try {
-    if (!['ngo', 'admin'].includes(req.user.role)) {
+    if (!['ngo', 'admin', 'organizer'].includes(req.user.role)) {
       return res.status(403).json({ error: 'NGO access required' });
     }
 
     const myEvents = await query(
       `
-        SELECT e.*,
+        SELECT e.id, e.title, e.description,
+          e.location_name AS location, e.location_name AS beach_name,
+          e.event_date, e.start_time, e.end_time, e.status, e.organizer_id AS created_by,
+          e.poster_url, e.social_caption,
+          100 AS max_volunteers,
           COUNT(r.id)::int                                        AS registered_count,
           COUNT(CASE WHEN r.status='DONE'    THEN 1 END)::int    AS done_count,
           COUNT(CASE WHEN r.status='ACTIVE'  THEN 1 END)::int    AS active_count,
@@ -190,7 +201,7 @@ router.get('/my', verifyUserToken, async (req, res) => {
           COUNT(CASE WHEN r.status='ABSENT'  THEN 1 END)::int    AS absent_count
         FROM events e
         LEFT JOIN event_registrations r ON e.id = r.event_id
-        WHERE e.created_by = $1
+        WHERE e.organizer_id = $1
         GROUP BY e.id
         ORDER BY e.event_date DESC
       `,
@@ -199,13 +210,14 @@ router.get('/my', verifyUserToken, async (req, res) => {
 
     return res.status(200).json(myEvents.rows);
   } catch (error) {
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("GET /events/my Error:", error);
+    return res.status(500).json({ message: 'Internal server error', error: error.message });
   }
 });
 
 router.put('/:id', verifyUserToken, async (req, res) => {
   try {
-    if (!['ngo', 'admin'].includes(req.user.role)) {
+    if (!['ngo', 'admin', 'organizer'].includes(req.user.role)) {
       return res.status(403).json({ error: 'NGO access required' });
     }
 
@@ -215,7 +227,7 @@ router.put('/:id', verifyUserToken, async (req, res) => {
     }
 
     const event = eventCheck.rows[0];
-    if (event.created_by !== req.user.userId && req.user.role !== 'admin') {
+    if (event.organizer_id !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own events' });
     }
 
@@ -253,10 +265,17 @@ router.put('/:id', verifyUserToken, async (req, res) => {
       if (err) return res.status(400).json({ error: err });
     }
 
+    // Explicitly parse frontend fields into DB fields
+    if (normalizedBody.location) {
+        normalizedBody.location_name = normalizedBody.location;
+    }
+
     for (const key of allowed) {
       if (normalizedBody[key] !== undefined) {
-        fields.push(`${key} = $${idx++}`);
-        values.push(normalizedBody[key]);
+        if (key === 'location_name' || key === 'title' || key === 'description' || key === 'latitude' || key === 'longitude' || key === 'event_date' || key === 'start_time' || key === 'end_time' || key === 'status') {
+           fields.push(`${key} = $${idx++}`);
+           values.push(normalizedBody[key]);
+        }
       }
     }
 
@@ -278,7 +297,7 @@ router.put('/:id', verifyUserToken, async (req, res) => {
 
 router.delete('/:id', verifyUserToken, async (req, res) => {
   try {
-    if (!['ngo', 'admin'].includes(req.user.role)) {
+    if (!['ngo', 'admin', 'organizer'].includes(req.user.role)) {
       return res.status(403).json({ error: 'NGO access required' });
     }
 
@@ -288,7 +307,7 @@ router.delete('/:id', verifyUserToken, async (req, res) => {
     }
 
     const event = eventCheck.rows[0];
-    if (event.created_by !== req.user.userId && req.user.role !== 'admin') {
+    if (event.organizer_id !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own events' });
     }
 
@@ -326,7 +345,7 @@ router.delete('/:id', verifyUserToken, async (req, res) => {
 
 router.get('/:id/registrations/export', verifyUserToken, async (req, res) => {
   try {
-    if (!['ngo', 'admin'].includes(req.user.role)) {
+    if (!['ngo', 'admin', 'organizer'].includes(req.user.role)) {
       return res.status(403).json({ error: 'NGO access required' });
     }
 
@@ -336,7 +355,7 @@ router.get('/:id/registrations/export', verifyUserToken, async (req, res) => {
     }
 
     const event = eventCheck.rows[0];
-    if (event.created_by !== req.user.userId && req.user.role !== 'admin') {
+    if (event.organizer_id !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own events' });
     }
 
@@ -344,7 +363,7 @@ router.get('/:id/registrations/export', verifyUserToken, async (req, res) => {
       `
         SELECT
           r.id, r.status, r.entry_time, r.exit_time, r.duration_mins, r.registered_at,
-          u.name  AS volunteer_name,
+          u.first_name || ' ' || COALESCE(u.last_name, '')  AS volunteer_name,
           u.email AS volunteer_email,
           u.phone AS volunteer_phone
         FROM event_registrations r
@@ -384,7 +403,7 @@ router.get('/:id/registrations/export', verifyUserToken, async (req, res) => {
 
 router.get('/:id/registrations', verifyUserToken, async (req, res) => {
   try {
-    if (!['ngo', 'admin'].includes(req.user.role)) {
+    if (!['ngo', 'admin', 'organizer'].includes(req.user.role)) {
       return res.status(403).json({ error: 'NGO access required' });
     }
 
@@ -394,7 +413,7 @@ router.get('/:id/registrations', verifyUserToken, async (req, res) => {
     }
 
     const event = eventCheck.rows[0];
-    if (event.created_by !== req.user.userId && req.user.role !== 'admin') {
+    if (event.organizer_id !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own events' });
     }
 
@@ -402,7 +421,7 @@ router.get('/:id/registrations', verifyUserToken, async (req, res) => {
       `
         SELECT
           r.id, r.status, r.entry_time, r.exit_time, r.duration_mins, r.registered_at,
-          u.name  AS volunteer_name,
+          u.first_name || ' ' || COALESCE(u.last_name, '')  AS volunteer_name,
           u.email AS volunteer_email,
           u.phone AS volunteer_phone
         FROM event_registrations r
@@ -431,7 +450,7 @@ router.get('/:id/registrations', verifyUserToken, async (req, res) => {
 
 router.patch('/:id/registrations/:reg_id/status', verifyUserToken, async (req, res) => {
   try {
-    if (!['ngo', 'admin'].includes(req.user.role)) {
+    if (!['ngo', 'admin', 'organizer'].includes(req.user.role)) {
       return res.status(403).json({ error: 'NGO access required' });
     }
 
@@ -447,7 +466,7 @@ router.patch('/:id/registrations/:reg_id/status', verifyUserToken, async (req, r
     }
 
     const event = eventCheck.rows[0];
-    if (event.created_by !== req.user.userId && req.user.role !== 'admin') {
+    if (event.organizer_id !== req.user.userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own events' });
     }
 
@@ -488,7 +507,12 @@ router.get('/:id', async (req, res) => {
   try {
     const eventResult = await query(
       `
-        SELECT e.*, COUNT(r.id) as registered_count
+        SELECT
+          e.id, e.title, e.description,
+          e.location_name AS location, e.location_name AS beach_name,
+          e.event_date, e.start_time, e.end_time, e.status, e.organizer_id AS created_by,
+          100 AS max_volunteers,
+          COUNT(r.id) as registered_count
         FROM events e
         LEFT JOIN event_registrations r ON e.id = r.event_id
         WHERE e.id = $1
@@ -509,7 +533,7 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', verifyUserToken, async (req, res) => {
   try {
-    if (req.user.role !== 'ngo' && req.user.role !== 'admin') {
+    if (!['ngo', 'admin', 'organizer'].includes(req.user.role)) {
       return res.status(403).json({ message: 'Only NGO or admin can create events' });
     }
 
@@ -526,9 +550,12 @@ router.post('/', verifyUserToken, async (req, res) => {
       max_volunteers,
     } = req.body;
 
-    if (!title || !location || !beach_name || !event_date || !start_time || !end_time) {
+    // Frontend passes beach_name instead of location mostly or location 
+    const determinedLocation = location || beach_name;
+
+    if (!title || !event_date || !start_time || !end_time) {
       return res.status(400).json({
-        message: 'Missing required fields: title, location, beach_name, event_date, start_time, end_time',
+        message: 'Missing required fields: title, event_date, start_time, end_time',
       });
     }
 
@@ -544,36 +571,33 @@ router.post('/', verifyUserToken, async (req, res) => {
         INSERT INTO events (
           title,
           description,
-          location,
+          location_name,
           latitude,
           longitude,
-          beach_name,
           event_date,
           start_time,
           end_time,
-          max_volunteers,
-          created_by
+          organizer_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, 100), $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *
       `,
       [
         title,
         description || null,
-        location,
+        determinedLocation || 'Unknown Shore',
         parsedLatitude,
         parsedLongitude,
-        beach_name,
         event_date,
         start_time,
         end_time,
-        max_volunteers ?? null,
         req.user.userId,
       ]
     );
 
     return res.status(201).json(createdEvent.rows[0]);
   } catch (error) {
+    console.error("POST /events Creation error:", error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 });
