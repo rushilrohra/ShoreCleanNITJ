@@ -37,11 +37,47 @@ async function ensureEventColumns() {
   }
 }
 
+async function ensureScanLogForeignKeyCascade() {
+  try {
+    const fkResult = await pool.query(
+      `
+        SELECT c.conname, pg_get_constraintdef(c.oid) AS condef
+        FROM pg_constraint c
+        JOIN pg_class t ON c.conrelid = t.oid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE c.contype = 'f'
+          AND n.nspname = 'public'
+          AND t.relname = 'scan_logs'
+          AND pg_get_constraintdef(c.oid) LIKE 'FOREIGN KEY (registration_id)%event_registrations(id)%'
+        LIMIT 1
+      `
+    );
+
+    const row = fkResult.rows[0];
+    if (row && !String(row.condef).includes('ON DELETE CASCADE')) {
+      const safeConstraint = String(row.conname).replace(/"/g, '""');
+      await pool.query(`ALTER TABLE scan_logs DROP CONSTRAINT "${safeConstraint}"`);
+      await pool.query(
+        `
+          ALTER TABLE scan_logs
+          ADD CONSTRAINT scan_logs_registration_id_fkey
+          FOREIGN KEY (registration_id)
+          REFERENCES event_registrations(id)
+          ON DELETE CASCADE
+        `
+      );
+    }
+  } catch (error) {
+    console.error('Failed to ensure scan_logs foreign key cascade:', error.message);
+  }
+}
+
 const query = (text, params) => pool.query(text, params);
 
 testConnection();
 ensureIndexes();
 ensureEventColumns();
+ensureScanLogForeignKeyCascade();
 
 module.exports = {
   pool,
@@ -49,4 +85,5 @@ module.exports = {
   testConnection,
   ensureIndexes,
   ensureEventColumns,
+  ensureScanLogForeignKeyCascade,
 };

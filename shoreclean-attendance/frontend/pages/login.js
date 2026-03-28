@@ -22,15 +22,29 @@ function AnimatedCounters() {
     if (!ref.current || animated.current) return;
     animated.current = true;
     const counters = ref.current.querySelectorAll('[data-counter]');
-    counters.forEach((el) => {
+    counters.forEach((el, idx) => {
       const target = parseFloat(el.dataset.counterTarget);
       const suffix = el.dataset.counterSuffix || '';
       let st = null;
+      let lastValue = -1;
+      const duration = 1600;
+      const delay = idx * 90;
+
       const step = (ts) => {
         if (!st) st = ts;
-        const p = Math.min((ts - st) / 2000, 1);
+        const elapsed = ts - st;
+        if (elapsed < delay) {
+          requestAnimationFrame(step);
+          return;
+        }
+
+        const p = Math.min((elapsed - delay) / duration, 1);
         const e = 1 - Math.pow(1 - p, 3);
-        el.textContent = Math.floor(e * target).toLocaleString('en-IN') + suffix;
+        const nextValue = Math.round(e * target);
+        if (nextValue !== lastValue || p === 1) {
+          el.textContent = nextValue.toLocaleString('en-IN') + suffix;
+          lastValue = nextValue;
+        }
         if (p < 1) requestAnimationFrame(step);
       };
       requestAnimationFrame(step);
@@ -38,10 +52,10 @@ function AnimatedCounters() {
   }, []);
 
   return (
-    <div ref={ref} style={{ display: 'flex', gap: 'var(--sp-4)', marginTop: 'var(--sp-10)' }}>
+    <div ref={ref} className="auth-stats-grid" style={{ display: 'flex', gap: 'var(--sp-4)', marginTop: 'var(--sp-10)' }}>
       {[['2400', '+', 'Registered Volunteers'], ['180', '+', 'Cleanup Drives'], ['34000', ' kg', 'Waste Removed']].map(([target, suffix, label]) => (
-        <div key={label} style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 'var(--r-md)', padding: 'var(--sp-3) var(--sp-4)', textAlign: 'center', flex: 1 }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 20 }} data-counter data-counter-target={target} data-counter-suffix={suffix}>0</div>
+        <div key={label} className="auth-stat-card" style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 'var(--r-md)', padding: 'var(--sp-3) var(--sp-4)', textAlign: 'center', flex: 1 }}>
+          <div className="auth-stat-value" style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 20 }} data-counter data-counter-target={target} data-counter-suffix={suffix}>0</div>
           <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>{label}</div>
         </div>
       ))}

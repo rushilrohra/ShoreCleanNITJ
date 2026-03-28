@@ -96,7 +96,7 @@ export default function Navbar() {
           top: 0,
           left: 0,
           right: 0,
-          zIndex: 100,
+          zIndex: 2000,
           height: '64px',
           background: 'white',
           borderBottom: '1px solid var(--color-border)',
@@ -247,7 +247,7 @@ export default function Navbar() {
           background: white;
           border-bottom: 1px solid var(--color-border);
           box-shadow: var(--shadow-md);
-          z-index: 99;
+          z-index: 1999;
           padding: var(--sp-3) 0;
         }
 

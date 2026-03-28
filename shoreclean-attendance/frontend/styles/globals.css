@@ -694,6 +694,30 @@ tbody tr:hover { background: var(--gray-100); }
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 15px; color: white;
   position: absolute; animation: avatar-pulse 3s ease-in-out infinite;
+  will-change: transform, opacity;
+  transform: translateZ(0);
+}
+
+/* ─── Auth counters smoothness ─── */
+.auth-stats-grid {
+  align-items: stretch;
+}
+
+.auth-stat-card {
+  min-width: 120px;
+  min-height: 84px;
+  backdrop-filter: blur(2px);
+}
+
+.auth-stat-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  min-height: 28px;
+}
+
+/* ─── Keep map below fixed navbar ─── */
+.leaflet-container {
+  z-index: 1;
 }
 
 /* ─── Popper tooltip redesigned ─── */

@@ -45,7 +45,7 @@ CREATE TABLE event_registrations (
 
 CREATE TABLE scan_logs (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  registration_id UUID NOT NULL REFERENCES event_registrations(id),
+  registration_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
   scanned_by      UUID NOT NULL REFERENCES users(id),
   scan_type       TEXT NOT NULL CHECK (scan_type IN ('checkin', 'checkout')),
   scanned_at      TIMESTAMPTZ DEFAULT NOW(),

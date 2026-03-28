@@ -58,11 +58,14 @@ async function generateDescriptionWithGemini({ title, beachName, location }) {
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const prompt = [
-    'Generate exactly two short lines for an NGO event description.',
-    'Do not use bullet points, emojis, headings, or numbering.',
-    'Keep the tone warm, action-oriented, and professional.',
-    'Line 1 should mention the event and location.',
-    'Line 2 should mention impact and volunteer invitation.',
+    'Generate exactly two lines for an NGO beach-cleanup event description.',
+    'Be slightly descriptive and a little elaborative, while still concise.',
+    'Do not use bullet points, emojis, headings, hashtags, or numbering.',
+    'Tone: warm, motivating, community-focused, and professional.',
+    'Each line should be around 14 to 24 words.',
+    'Line 1: mention the event purpose, beach, and location with vivid but realistic wording.',
+    'Line 2: mention expected environmental impact and clearly invite volunteers to participate.',
+    'Output only the two lines, separated by a newline, with no extra text.',
     '',
     `Event title: ${title}`,
     `Beach name: ${beachName}`,
@@ -298,9 +301,25 @@ router.delete('/:id', verifyUserToken, async (req, res) => {
       return res.status(400).json({ error: 'Cannot delete — volunteers are currently checked in.' });
     }
 
+    // Remove scan logs first so historical rows do not block event deletion.
+    await query(
+      `
+        DELETE FROM scan_logs
+        WHERE registration_id IN (
+          SELECT id FROM event_registrations WHERE event_id = $1
+        )
+      `,
+      [req.params.id]
+    );
+
     await query(`DELETE FROM events WHERE id=$1`, [req.params.id]);
     return res.status(200).json({ message: 'Event deleted.' });
   } catch (error) {
+    if (error?.code === '23503') {
+      return res.status(400).json({
+        error: 'Cannot delete this event due to dependent records. Please remove related records first.',
+      });
+    }
     return res.status(500).json({ message: 'Internal server error' });
   }
 });
